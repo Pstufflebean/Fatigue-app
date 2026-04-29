@@ -1,0 +1,2 @@
+const SUPABASE_URL = https://hfbqsyirmlddftouwwty.supabase.co;
+const SUPABASE_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhmYnFzeWlybWxkZGZ0b3V3d3R5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0MTgzODAsImV4cCI6MjA5Mjk5NDM4MH0.v79D_un6xH0o7Wn5sExAzIUJQxKw2aeQcttr--iArZw;
