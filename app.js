@@ -7,6 +7,7 @@ let current = 0;
 let answers = [];
 let totalScore = 0;
 let answerMap = {};
+let alertTriggered = false; // 🔥 track alerts
 
 // =======================
 // START ASSESSMENT
@@ -18,6 +19,7 @@ async function startAssessment() {
   totalScore = 0;
   questions = [];
   answerMap = {};
+  alertTriggered = false;
 
   document.getElementById('landing').style.display = 'none';
   document.getElementById('assessment').style.display = 'block';
@@ -73,7 +75,6 @@ function shouldShowQuestion(q) {
 
     if (prevValue === undefined) return false;
 
-    // 🔥 FIX: normalize values
     const val = Number(prevValue);
 
     if (cond.equals !== undefined) {
@@ -140,11 +141,9 @@ function showQuestion() {
 
     try {
       const options = JSON.parse(q.options);
-
       options.forEach(opt => {
         selectInput.innerHTML += `<option value="${opt.value}">${opt.label}</option>`;
       });
-
     } catch (err) {
       console.error("Options error:", err);
     }
@@ -155,17 +154,18 @@ function showQuestion() {
 }
 
 // =======================
-// NEXT QUESTION (FIXED)
+// NEXT QUESTION
 // =======================
 function nextQuestion() {
 
   const q = questions[current];
   let value;
 
+  // INPUT HANDLING
   if (q.type === 'numeric') {
     const raw = document.getElementById('numericInput').value;
 
-    if (raw.trim() === "") {
+    if (!raw || raw.trim() === "") {
       alert("Please enter a number");
       return;
     }
@@ -185,7 +185,7 @@ function nextQuestion() {
       return;
     }
 
-    value = raw.trim(); // 🔥 ensure clean text
+    value = raw.trim();
 
   } else {
     const raw = document.getElementById('selectInput').value;
@@ -198,8 +198,17 @@ function nextQuestion() {
     value = Number(raw);
   }
 
-  // Save for condition logic
+  // Save for conditional logic
   answerMap[q.id] = value;
+
+  // 🚨 ALERT TRACKING (no email yet)
+  if (
+    q.alert_trigger === true &&
+    q.type === 'boolean' &&
+    Number(value) === 1
+  ) {
+    alertTriggered = true;
+  }
 
   // =======================
   // SCORING
@@ -213,29 +222,16 @@ function nextQuestion() {
           ? JSON.parse(q.scoring)
           : q.scoring;
 
-        let matched = false;
-
         for (let rule of rules) {
-
-          if (rule.min !== undefined && rule.max !== undefined) {
-            if (value >= rule.min && value <= rule.max) {
-              weighted = rule.score;
-              matched = true;
-              break;
-            }
+          if (rule.min !== undefined && value >= rule.min && value <= rule.max) {
+            weighted = rule.score;
+            break;
           }
 
-          if (rule.value !== undefined) {
-            if (value === rule.value) {
-              weighted = rule.score;
-              matched = true;
-              break;
-            }
+          if (rule.value !== undefined && value === rule.value) {
+            weighted = rule.score;
+            break;
           }
-        }
-
-        if (!matched) {
-          console.warn("No scoring rule matched:", value);
         }
 
       } catch (err) {
@@ -249,7 +245,7 @@ function nextQuestion() {
 
   totalScore += weighted;
 
-  // 🔥 FORCE STRING SAVE
+  // Save answer
   answers.push({
     question_id: q.id,
     value: String(value),
@@ -282,6 +278,7 @@ async function finishAssessment() {
 
   document.getElementById('resultColor').innerText = "Risk Level: " + color;
 
+  // Save assessment
   const { data: assessment, error } = await supabaseClient
     .from('assessments')
     .insert([{
@@ -298,17 +295,38 @@ async function finishAssessment() {
 
   const assessmentId = assessment[0].id;
 
+  // Save answers
   for (let a of answers) {
-    await supabaseClient.from('answers').insert([{
-      assessment_id: assessmentId,
-      question_id: a.question_id,
-      value: a.value,
-      weighted_score: a.weighted_score
-    }]);
+
+    const { error } = await supabaseClient
+      .from('answers')
+      .insert([{
+        assessment_id: assessmentId,
+        question_id: a.question_id,
+        value: a.value,
+        weighted_score: a.weighted_score
+      }]);
+
+    if (error) {
+      console.error("Answer insert failed:", error);
+    }
   }
 
-  if (totalScore >= 10) {
-    console.log("Trigger supervisor alert");
+  // 🚨 SEND FULL ALERT EMAIL
+  if (alertTriggered) {
+
+    fetch('/api/send-alert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        answers: answers,
+        totalScore: totalScore,
+        risk: color,
+        timestamp: new Date().toLocaleString()
+      })
+    })
+    .then(() => console.log("Alert sent"))
+    .catch(err => console.error("Alert error:", err));
   }
 }
 
