@@ -1,24 +1,97 @@
 body {
+  margin: 0;
   font-family: Arial, sans-serif;
-  text-align: center;
-  background: #f4f6f8;
 }
 
-h1, h2 {
+/* HEADER */
+.header {
+  background: #0d2b5c;
+  color: white;
+  padding: 15px 30px;
+  display: flex;
+  align-items: center;
+  font-weight: bold;
+}
+
+.header-logo {
+  width: 40px;
+  margin-right: 15px;
+}
+
+/* HERO */
+.hero {
+  display: flex;
+  height: calc(100vh - 70px);
+}
+
+.left {
+  width: 50%;
+  padding: 80px;
+}
+
+.left h1 {
   color: #1f3c88;
+  font-size: 48px;
 }
 
+.left p {
+  font-size: 20px;
+}
+
+.right {
+  width: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.main-logo {
+  width: 300px;
+}
+
+/* BUTTON */
 button {
   padding: 15px 25px;
   font-size: 18px;
   background-color: #1f3c88;
   color: white;
   border: none;
-  border-radius: 5px;
+  border-radius: 6px;
 }
 
-input, select {
-  padding: 10px;
-  font-size: 18px;
-  margin: 20px;
+/* ===== ASSESSMENT FIX ===== */
+
+.assessment-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: calc(100vh - 70px);
+  width: 100%;
+}
+
+.assessment-box {
+  text-align: center;
+  width: 100%;
+  max-width: 500px;
+  padding: 20px;
+}
+
+#questionText {
+  font-size: 28px;
+  margin-bottom: 20px;
+}
+
+.input-large {
+  width: 100%;
+  padding: 18px;
+  font-size: 22px;
+  border-radius: 8px;
+  border: 2px solid #1f3c88;
+  margin-bottom: 20px;
+}
+
+.next-button {
+  width: 100%;
+  padding: 18px;
+  font-size: 20px;
 }

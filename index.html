@@ -1,22 +1,79 @@
-<div id="landing">
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Fatigue Assessment</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+</head>
 
-  <div class="header">
-    <h1>LINN COUNTY AMBULANCE DISTRICT</h1>
-  </div>
+<body>
 
-  <div class="content">
-    <img src="logo.png" class="logo" />
+<!-- HEADER -->
+<div class="header">
+  <img src="logo.png" class="header-logo">
+  <span>LINN COUNTY AMBULANCE DISTRICT</span>
+</div>
+<div style="position:absolute; top:15px; right:20px;">
+  <a href="admin.html" style="color:white; text-decoration:none; font-size:14px;">Admin</a>
+</div>
 
-    <h2>Fatigue Assessment</h2>
+<!-- LANDING PAGE -->
+<div id="landing" class="hero">
 
+  <div class="left">
+    <h1>Fatigue Assessment</h1>
     <p>
-      This assessment supports operational safety and readiness.<br>
+      Your alertness impacts your team,<br>
+      your patients, and your community.<br><br>
       Thank you for your commitment to safety.
     </p>
 
-    <button onclick="startAssessment()">Begin Assessment</button>
+    <button onclick="startAssessment()">Begin Assessment →</button>
   </div>
 
-  <div class="footer"></div>
+  <div class="right">
+    <img src="logo.png" class="main-logo">
+  </div>
 
 </div>
+
+<!-- ASSESSMENT -->
+<div id="assessment" style="display:none;">
+
+  <div class="assessment-wrapper">
+
+    <div class="assessment-box">
+      
+      <h2 id="questionText"></h2>
+
+      <input id="numericInput" type="number" class="input-large" style="display:none;" />
+
+      <input id="textInput" type="text" class="input-large" style="display:none;" />
+
+      <select id="selectInput" class="input-large" style="display:none;">
+        <option value="">Select</option>
+        <option value="0">No</option>
+        <option value="1">Yes</option>
+      </select>
+
+      <button onclick="nextQuestion()" class="next-button">Next</button>
+
+    </div>
+
+  </div>
+
+</div>
+
+<!-- RESULT -->
+<div id="result" style="display:none; text-align:center; padding:50px;">
+  <h1 id="resultColor"></h1>
+
+  <!-- NEW BUTTON -->
+  <button onclick="restartAssessment()">Start Over</button>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>

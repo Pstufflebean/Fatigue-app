@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Admin Panel</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+</head>
+
+<body>
+
+<div id="login" style="text-align:center; margin-top:100px;">
+  <h2>Admin Access</h2>
+  <input type="password" id="passwordInput" placeholder="Enter password" class="input-large"/>
+  <br><br>
+  <button onclick="login()">Enter</button>
+</div>
+
+<div id="adminPanel" style="display:none; padding:20px;">
+  <h2>Assessments</h2>
+  <div id="assessmentList"></div>
+</div>
+
+<script src="config.js"></script>
+<script src="admin.js"></script>
+
+</body>
+</html>
