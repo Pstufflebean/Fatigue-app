@@ -313,30 +313,28 @@ async function finishAssessment() {
   }
 
   // 🚨 SEND FULL ALERT EMAIL
-  if (alertTriggered) {
+ if (alertTriggered) {
 
-    fetch('/api/send-alert', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-  answers: answers.map(a => {
-    const q = questions.find(q => q.id === a.question_id);
-
-    return {
-      text: q?.text || "Unknown question",
-      type: q?.type,
-      value: a.value,
-      options: q?.options || null
-    };
-  }),
-  totalScore: totalScore,
-  risk: color,
-  timestamp: new Date().toLocaleString()
-})
+  fetch('/api/send-alert', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      answers: answers,
+      totalScore: totalScore,
+      risk: color,
+      timestamp: new Date().toLocaleString()
     })
-    .then(() => console.log("Alert sent"))
-    .catch(err => console.error("Alert error:", err));
-  }
+  })
+  .then(async res => {
+    const text = await res.text();
+
+    if (!res.ok) {
+      console.error("ALERT FAILED:", text);
+    } else {
+      console.log("ALERT SUCCESS:", text);
+    }
+  })
+  .catch(err => console.error("FETCH ERROR:", err));
 }
 
 // =======================

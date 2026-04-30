@@ -1,12 +1,18 @@
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 export default async function handler(req, res) {
 
   try {
 
+    console.log("REQUEST BODY:", req.body);
+
+    const resend = new Resend(process.env.RESEND_API_KEY);
+
     const { answers, totalScore, risk, timestamp } = req.body;
+
+    if (!answers) {
+      throw new Error("Missing answers array");
+    }
 
     let answerList = "";
 
@@ -14,17 +20,14 @@ export default async function handler(req, res) {
 
       let displayValue = a.value;
 
-      // BOOLEAN
       if (a.type === "boolean") {
         displayValue = Number(a.value) === 1 ? "Yes" : "No";
       }
 
-      // SELECT (SAFE PARSE)
       if (a.type === "select" && a.options) {
         try {
           let opts = a.options;
 
-          // 🔥 handle string OR object
           if (typeof opts === "string") {
             opts = JSON.parse(opts);
           }
@@ -35,40 +38,39 @@ export default async function handler(req, res) {
           }
 
         } catch (err) {
-          console.error("Options parse failed:", err);
+          console.error("OPTION PARSE ERROR:", err);
         }
       }
 
       answerList += `
-        <div style="margin-bottom:12px;">
+        <div>
           <strong>${a.text}</strong><br>
           ${displayValue}
         </div>
       `;
     });
 
-    await resend.emails.send({
+    const response = await resend.emails.send({
       from: 'Fatigue App <onboarding@resend.dev>',
-      to: ['your@email.com'], // 🔥 replace or wire dynamic later
-      subject: '⚠️ Fatigue Alert - Full Assessment',
+      to: ['your@email.com'], // 🔥 confirm this is valid
+      subject: 'Fatigue Alert Test',
       html: `
-        <h2>Fatigue Alert Triggered</h2>
-
-        <p><strong>Time:</strong> ${timestamp}</p>
-        <p><strong>Score:</strong> ${totalScore}</p>
-        <p><strong>Risk Level:</strong> ${risk}</p>
-
-        <hr>
-
-        <h3>Assessment Responses</h3>
+        <h2>Alert</h2>
+        <p>Score: ${totalScore}</p>
+        <p>Risk: ${risk}</p>
         ${answerList}
       `
     });
 
+    console.log("EMAIL RESPONSE:", response);
+
     return res.status(200).json({ success: true });
 
   } catch (error) {
-    console.error("EMAIL ERROR:", error);
-    return res.status(500).json({ error: error.message });
+    console.error("FULL ERROR:", error);
+    return res.status(500).json({
+      error: error.message,
+      stack: error.stack
+    });
   }
 }
