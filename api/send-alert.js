@@ -4,9 +4,9 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 export default async function handler(req, res) {
 
-  const { answers, totalScore, risk, timestamp } = req.body;
-
   try {
+
+    const { answers, totalScore, risk, timestamp } = req.body;
 
     let answerList = "";
 
@@ -19,18 +19,25 @@ export default async function handler(req, res) {
         displayValue = Number(a.value) === 1 ? "Yes" : "No";
       }
 
-      // SELECT
+      // SELECT (SAFE PARSE)
       if (a.type === "select" && a.options) {
         try {
-          const opts = JSON.parse(a.options);
-          const match = opts.find(o => Number(o.value) === Number(a.value));
-          if (match) displayValue = match.label;
+          let opts = a.options;
+
+          // 🔥 handle string OR object
+          if (typeof opts === "string") {
+            opts = JSON.parse(opts);
+          }
+
+          if (Array.isArray(opts)) {
+            const match = opts.find(o => Number(o.value) === Number(a.value));
+            if (match) displayValue = match.label;
+          }
+
         } catch (err) {
-          console.error("Option parse error", err);
+          console.error("Options parse failed:", err);
         }
       }
-
-      // TEXT + NUMERIC = already fine
 
       answerList += `
         <div style="margin-bottom:12px;">
@@ -42,7 +49,7 @@ export default async function handler(req, res) {
 
     await resend.emails.send({
       from: 'Fatigue App <onboarding@resend.dev>',
-      to: ['dshift@lcadems.com'], // 🔥 change this
+      to: ['your@email.com'], // 🔥 replace or wire dynamic later
       subject: '⚠️ Fatigue Alert - Full Assessment',
       html: `
         <h2>Fatigue Alert Triggered</h2>
@@ -58,10 +65,10 @@ export default async function handler(req, res) {
       `
     });
 
-    res.status(200).json({ success: true });
+    return res.status(200).json({ success: true });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Email failed' });
+    console.error("EMAIL ERROR:", error);
+    return res.status(500).json({ error: error.message });
   }
 }
