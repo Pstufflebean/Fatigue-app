@@ -7,11 +7,9 @@ let current = 0;
 let answers = [];
 let totalScore = 0;
 let answerMap = {};
-let alertTriggered = false; // 🔥 track alerts
+let alertTriggered = false;
 
-// =======================
-// START ASSESSMENT
-// =======================
+// START
 async function startAssessment() {
 
   current = 0;
@@ -35,70 +33,45 @@ async function startAssessment() {
   showQuestion();
 }
 
-// =======================
 // LOAD QUESTIONS
-// =======================
 async function loadQuestions() {
-  try {
-    const { data, error } = await supabaseClient
-      .from('questions')
-      .select('*')
-      .eq('active', true)
-      .order('order_index', { ascending: true });
+  const { data, error } = await supabaseClient
+    .from('questions')
+    .select('*')
+    .eq('active', true)
+    .order('order_index', { ascending: true });
 
-    if (error) {
-      console.error(error);
-      alert("Error loading questions");
-      return;
-    }
-
-    questions = data;
-
-  } catch (err) {
-    console.error(err);
-    alert("App crashed loading questions");
+  if (error) {
+    console.error(error);
+    alert("Error loading questions");
+    return;
   }
+
+  questions = data;
 }
 
-// =======================
-// CONDITIONAL LOGIC (FIXED)
-// =======================
+// CONDITIONAL
 function shouldShowQuestion(q) {
   if (!q.condition) return true;
 
   try {
-    const cond = typeof q.condition === "string"
-      ? JSON.parse(q.condition)
-      : q.condition;
+    const cond = JSON.parse(q.condition);
+    const prev = answerMap[cond.question_id];
 
-    const prevValue = answerMap[cond.question_id];
+    if (prev === undefined) return false;
 
-    if (prevValue === undefined) return false;
+    if (cond.equals !== undefined) return Number(prev) === Number(cond.equals);
+    if (cond.min !== undefined) return Number(prev) >= cond.min;
+    if (cond.max !== undefined) return Number(prev) <= cond.max;
 
-    const val = Number(prevValue);
-
-    if (cond.equals !== undefined) {
-      return val === Number(cond.equals);
-    }
-
-    if (cond.min !== undefined) {
-      return val >= Number(cond.min);
-    }
-
-    if (cond.max !== undefined) {
-      return val <= Number(cond.max);
-    }
-
-  } catch (err) {
-    console.error("Condition error:", err);
+  } catch (e) {
+    console.error(e);
   }
 
   return false;
 }
 
-// =======================
-// SHOW QUESTION
-// =======================
+// SHOW
 function showQuestion() {
 
   while (current < questions.length && !shouldShowQuestion(questions[current])) {
@@ -114,151 +87,100 @@ function showQuestion() {
 
   document.getElementById('questionText').innerText = q.text;
 
-  const numericInput = document.getElementById('numericInput');
-  const selectInput = document.getElementById('selectInput');
-  const textInput = document.getElementById('textInput');
+  const num = document.getElementById('numericInput');
+  const sel = document.getElementById('selectInput');
+  const txt = document.getElementById('textInput');
 
-  numericInput.style.display = 'none';
-  selectInput.style.display = 'none';
-  textInput.style.display = 'none';
+  num.style.display = 'none';
+  sel.style.display = 'none';
+  txt.style.display = 'none';
 
-  numericInput.value = '';
-  selectInput.innerHTML = '<option value="">Select</option>';
-  textInput.value = '';
+  num.value = '';
+  sel.innerHTML = '<option value="">Select</option>';
+  txt.value = '';
 
   if (q.type === 'numeric') {
-    numericInput.style.display = 'block';
+    num.style.display = 'block';
+  }
 
-  } else if (q.type === 'boolean') {
-    selectInput.style.display = 'block';
-    selectInput.innerHTML += `
-      <option value="0">No</option>
-      <option value="1">Yes</option>
-    `;
+  if (q.type === 'boolean') {
+    sel.style.display = 'block';
+    sel.innerHTML += `<option value="0">No</option><option value="1">Yes</option>`;
+  }
 
-  } else if (q.type === 'select') {
-    selectInput.style.display = 'block';
-
+  if (q.type === 'select') {
+    sel.style.display = 'block';
     try {
-      const options = JSON.parse(q.options);
-      options.forEach(opt => {
-        selectInput.innerHTML += `<option value="${opt.value}">${opt.label}</option>`;
+      const opts = JSON.parse(q.options);
+      opts.forEach(o => {
+        sel.innerHTML += `<option value="${o.value}">${o.label}</option>`;
       });
-    } catch (err) {
-      console.error("Options error:", err);
+    } catch (e) {
+      console.error(e);
     }
+  }
 
-  } else if (q.type === 'text') {
-    textInput.style.display = 'block';
+  if (q.type === 'text') {
+    txt.style.display = 'block';
   }
 }
 
-// =======================
-// NEXT QUESTION
-// =======================
+// NEXT
 function nextQuestion() {
 
   const q = questions[current];
   let value;
 
-  // INPUT HANDLING
   if (q.type === 'numeric') {
     const raw = document.getElementById('numericInput').value;
-
-    if (!raw || raw.trim() === "") {
-      alert("Please enter a number");
-      return;
-    }
-
-    value = Number(raw);
-
-    if (isNaN(value)) {
-      alert("Please enter a valid number");
-      return;
-    }
-
-  } else if (q.type === 'text') {
-    const raw = document.getElementById('textInput').value;
-
-    if (!raw || raw.trim() === "") {
-      alert("Please enter a response");
-      return;
-    }
-
-    value = raw.trim();
-
-  } else {
-    const raw = document.getElementById('selectInput').value;
-
-    if (raw === "") {
-      alert("Please select an option");
-      return;
-    }
-
+    if (!raw) return alert("Enter a number");
     value = Number(raw);
   }
 
-  // Save for conditional logic
+  else if (q.type === 'text') {
+    const raw = document.getElementById('textInput').value;
+    if (!raw) return alert("Enter a response");
+    value = raw.trim();
+  }
+
+  else {
+    const raw = document.getElementById('selectInput').value;
+    if (!raw) return alert("Select an option");
+    value = Number(raw);
+  }
+
   answerMap[q.id] = value;
 
-  // 🚨 ALERT TRACKING (no email yet)
-  if (
-    q.alert_trigger === true &&
-    q.type === 'boolean' &&
-    Number(value) === 1
-  ) {
+  // ALERT TRACK
+  if (q.alert_trigger && Number(value) === 1) {
     alertTriggered = true;
   }
 
-  // =======================
-  // SCORING
-  // =======================
-  let weighted = 0;
+  let score = 0;
 
-  if (q.type !== 'text') {
-    if (q.scoring) {
-      try {
-        const rules = typeof q.scoring === "string"
-          ? JSON.parse(q.scoring)
-          : q.scoring;
-
-        for (let rule of rules) {
-          if (rule.min !== undefined && value >= rule.min && value <= rule.max) {
-            weighted = rule.score;
-            break;
-          }
-
-          if (rule.value !== undefined && value === rule.value) {
-            weighted = rule.score;
-            break;
-          }
-        }
-
-      } catch (err) {
-        console.error("Scoring error:", err);
+  if (q.scoring && q.type !== 'text') {
+    try {
+      const rules = JSON.parse(q.scoring);
+      for (let r of rules) {
+        if (r.min !== undefined && value >= r.min && value <= r.max) score = r.score;
+        if (r.value !== undefined && value === r.value) score = r.score;
       }
-
-    } else {
-      weighted = value * q.weight;
-    }
+    } catch {}
   }
 
-  totalScore += weighted;
+  totalScore += score;
 
-  // Save answer
   answers.push({
     question_id: q.id,
     value: String(value),
-    weighted_score: weighted
+    weighted_score: score
   });
 
   current++;
   showQuestion();
 }
 
-// =======================
-// SCORE → COLOR
-// =======================
+// COLOR
 function getColor(score) {
   if (score <= 3) return "GREEN";
   if (score <= 6) return "YELLOW";
@@ -266,9 +188,7 @@ function getColor(score) {
   return "RED";
 }
 
-// =======================
 // FINISH
-// =======================
 async function finishAssessment() {
 
   const color = getColor(totalScore);
@@ -278,70 +198,44 @@ async function finishAssessment() {
 
   document.getElementById('resultColor').innerText = "Risk Level: " + color;
 
-  // Save assessment
-  const { data: assessment, error } = await supabaseClient
+  const { data } = await supabaseClient
     .from('assessments')
-    .insert([{
-      total_score: totalScore,
-      risk_color: color
-    }])
+    .insert([{ total_score: totalScore, risk_color: color }])
     .select();
 
-  if (error) {
-    console.error(error);
-    alert("Error saving assessment");
-    return;
-  }
+  const id = data[0].id;
 
-  const assessmentId = assessment[0].id;
-
-  // Save answers
   for (let a of answers) {
-
-    const { error } = await supabaseClient
-      .from('answers')
-      .insert([{
-        assessment_id: assessmentId,
-        question_id: a.question_id,
-        value: a.value,
-        weighted_score: a.weighted_score
-      }]);
-
-    if (error) {
-      console.error("Answer insert failed:", error);
-    }
+    await supabaseClient.from('answers').insert([{
+      assessment_id: id,
+      question_id: a.question_id,
+      value: a.value,
+      weighted_score: a.weighted_score
+    }]);
   }
 
-  // 🚨 SEND FULL ALERT EMAIL
- if (alertTriggered) {
-
-  fetch('/api/send-alert', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      answers: answers,
-      totalScore: totalScore,
-      risk: color,
-      timestamp: new Date().toLocaleString()
+  // EMAIL TRIGGER
+  if (alertTriggered) {
+    fetch('/api/send-alert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        answers,
+        totalScore,
+        risk: color,
+        timestamp: new Date().toLocaleString()
+      })
     })
-  })
-  .then(async res => {
-    const text = await res.text();
-
-    if (!res.ok) {
-      console.error("ALERT FAILED:", text);
-    } else {
-      console.log("ALERT SUCCESS:", text);
-    }
-  })
-  .catch(err => console.error("FETCH ERROR:", err));
+    .then(async res => {
+      const text = await res.text();
+      if (!res.ok) console.error("ALERT FAILED:", text);
+      else console.log("ALERT SUCCESS");
+    });
+  }
 }
 
-// =======================
 // RESTART
-// =======================
 function restartAssessment() {
   document.getElementById('result').style.display = 'none';
-  document.getElementById('assessment').style.display = 'none';
   document.getElementById('landing').style.display = 'block';
 }
