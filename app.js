@@ -319,11 +319,20 @@ async function finishAssessment() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        answers: answers,
-        totalScore: totalScore,
-        risk: color,
-        timestamp: new Date().toLocaleString()
-      })
+  answers: answers.map(a => {
+    const q = questions.find(q => q.id === a.question_id);
+
+    return {
+      text: q?.text || "Unknown question",
+      type: q?.type,
+      value: a.value,
+      options: q?.options || null
+    };
+  }),
+  totalScore: totalScore,
+  risk: color,
+  timestamp: new Date().toLocaleString()
+})
     })
     .then(() => console.log("Alert sent"))
     .catch(err => console.error("Alert error:", err));
