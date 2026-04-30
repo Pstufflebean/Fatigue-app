@@ -51,8 +51,8 @@ export default async function handler(req, res) {
     });
 
     const response = await resend.emails.send({
-      from: 'Fatigue App <onboarding@resend.dev>',
-      to: ['your@email.com'], // 🔥 confirm this is valid
+      from: 'Fatigue App <fatigue@resend.dev>',
+      to: ['dshift@lcadems.com'], // 🔥 confirm this is valid
       subject: 'Fatigue Alert Test',
       html: `
         <h2>Alert</h2>
