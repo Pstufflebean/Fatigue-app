@@ -39,9 +39,9 @@ async function startAssessment() {
   answerMap = {};
   alertTriggered = false;
 
-  document.getElementById('landing').style.display = 'none';
-  document.getElementById('assessment').style.display = 'block';
-  document.getElementById('result').style.display = 'none';
+  document.getElementById('landing').style.display = 'flex';
+  document.getElementById('assessment').style.display = 'flex';
+  document.getElementById('result').style.display = 'flex';
 
   await loadQuestions();
 

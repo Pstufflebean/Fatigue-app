@@ -2,6 +2,10 @@
 <html>
 <head>
   <title>Fatigue Assessment</title>
+
+  <!-- 🔥 REQUIRED FOR MOBILE -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
 </head>
@@ -12,9 +16,6 @@
 <div class="header">
   <img src="logo.png" class="header-logo">
   <span>LINN COUNTY AMBULANCE DISTRICT</span>
-</div>
-<div style="position:absolute; top:15px; right:20px;">
-  <a href="admin.html" style="color:white; text-decoration:none; font-size:14px;">Admin</a>
 </div>
 
 <!-- LANDING PAGE -->
@@ -38,37 +39,21 @@
 </div>
 
 <!-- ASSESSMENT -->
-<div id="assessment" style="display:none;">
+<div id="assessment" class="centered">
+  <h2 id="questionText"></h2>
 
-  <div class="assessment-wrapper">
+  <input id="numericInput" type="number" />
+  <select id="selectInput">
+    <option value="">Select</option>
+  </select>
+  <input id="textInput" type="text" placeholder="Enter response..." />
 
-    <div class="assessment-box">
-      
-      <h2 id="questionText"></h2>
-
-      <input id="numericInput" type="number" class="input-large" style="display:none;" />
-
-      <input id="textInput" type="text" class="input-large" style="display:none;" />
-
-      <select id="selectInput" class="input-large" style="display:none;">
-        <option value="">Select</option>
-        <option value="0">No</option>
-        <option value="1">Yes</option>
-      </select>
-
-      <button onclick="nextQuestion()" class="next-button">Next</button>
-
-    </div>
-
-  </div>
-
+  <button onclick="nextQuestion()">Next</button>
 </div>
 
 <!-- RESULT -->
-<div id="result" style="display:none; text-align:center; padding:50px;">
+<div id="result" class="centered">
   <h1 id="resultColor"></h1>
-
-  <!-- NEW BUTTON -->
   <button onclick="restartAssessment()">Start Over</button>
 </div>
 
