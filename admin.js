@@ -1,7 +1,7 @@
 // Init Supabase
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const ADMIN_PASSWORD = "changeme123";
+const ADMIN_PASSWORD = "admin2262";
 
 // LOGIN
 function login() {
