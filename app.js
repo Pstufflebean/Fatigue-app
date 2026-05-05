@@ -9,6 +9,26 @@ let totalScore = 0;
 let answerMap = {};
 let alertTriggered = false;
 
+// =======================
+// 🔥 CIRCadian FUNCTION (GLOBAL)
+// =======================
+function getCircadianScore() {
+  const now = new Date();
+  const hour = now.getHours(); // 0–23
+
+  // HIGH RISK: 0200–0559
+  if (hour >= 2 && hour < 6) {
+    return 2;
+  }
+
+  // MODERATE RISK: 0000–0159 and 0600–0759
+  if ((hour >= 0 && hour < 2) || (hour >= 6 && hour < 8)) {
+    return 1;
+  }
+
+  return 0;
+}
+
 // START
 async function startAssessment() {
 
@@ -191,6 +211,12 @@ function getColor(score) {
 // FINISH
 async function finishAssessment() {
 
+  // 🔥 APPLY CIRCADIAN HERE (CORRECT PLACE)
+  const circadianScore = getCircadianScore();
+  totalScore += circadianScore;
+
+  console.log("Circadian score applied:", circadianScore);
+
   const color = getColor(totalScore);
 
   document.getElementById('assessment').style.display = 'none';
@@ -215,7 +241,7 @@ async function finishAssessment() {
   }
 
   // EMAIL TRIGGER
-  if (alertTriggered) {
+  if (alertTriggered || totalScore >= 10) {
     fetch('/api/send-alert', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
