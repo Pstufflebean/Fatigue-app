@@ -23,7 +23,7 @@ body {
 .hero {
   display: flex;
   justify-content: space-between;
-  align-items: center; /* keep for desktop */
+  align-items: flex-start; /* keep for desktop */
   padding: 60px;
 }
 
