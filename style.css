@@ -1,4 +1,4 @@
-/* GENERAL RESET */
+/* GENERAL */
 body {
   margin: 0;
   font-family: Arial, sans-serif;
@@ -19,11 +19,11 @@ body {
   height: 40px;
 }
 
-/* HERO (LANDING PAGE) */
+/* HERO (DESKTOP DEFAULT) */
 .hero {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: center; /* keep for desktop */
   padding: 60px;
 }
 
@@ -40,12 +40,12 @@ body {
   max-width: 300px;
 }
 
-/* CENTERED SECTIONS */
+/* ASSESSMENT / RESULT BASE */
 .centered {
   display: none;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: center; /* desktop stays centered */
   padding: 50px;
   text-align: center;
 }
@@ -84,45 +84,61 @@ button:hover {
 }
 
 /* ========================= */
-/* 🔥 MOBILE OPTIMIZATION */
+/* MOBILE FIXES */
 /* ========================= */
 @media (max-width: 768px) {
 
+  /* HERO FIX */
   .hero {
     flex-direction: column;
-    text-align: center;
+    align-items: flex-start; /* key change */
     padding: 20px;
   }
 
-  .left, .right {
+  .left {
     width: 100%;
   }
 
-  .main-logo {
-    max-width: 200px;
-    margin-top: 20px;
+  .right {
+    width: 100%;
+    justify-content: flex-start; /* align logo under text */
+    margin-top: 10px;
   }
 
+  .main-logo {
+    max-width: 180px;
+  }
+
+  /* HEADER */
   .header {
     font-size: 14px;
     padding: 10px;
   }
 
+  /* ASSESSMENT POSITION */
   .centered {
+    justify-content: flex-start; /* 🔥 move content to top */
     padding: 20px;
+    margin-top: 20px;
   }
 
   #questionText {
     font-size: 20px;
+    margin-top: 10px;
   }
 
   input, select {
-    width: 90%;
+    width: 95%;
     font-size: 18px;
   }
 
   button {
-    width: 90%;
+    width: 95%;
     font-size: 18px;
+  }
+
+  /* REMOVE DEAD SPACE */
+  body {
+    min-height: auto;
   }
 }
