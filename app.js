@@ -39,17 +39,23 @@ async function startAssessment() {
   answerMap = {};
   alertTriggered = false;
 
-  document.getElementById('landing').style.display = 'flex';
+  // Show assessment only
+  document.getElementById('landing').style.display = 'none';
   document.getElementById('assessment').style.display = 'flex';
-  document.getElementById('result').style.display = 'flex';
+  document.getElementById('result').style.display = 'none';
 
   await loadQuestions();
 
   if (!questions || questions.length === 0) {
     alert("No questions found");
+
+    // Return to landing if questions cannot load
+    document.getElementById('assessment').style.display = 'none';
+    document.getElementById('landing').style.display = 'flex';
     return;
   }
 
+  window.scrollTo(0, 0);
   showQuestion();
 }
 
@@ -219,8 +225,11 @@ async function finishAssessment() {
 
   const color = getColor(totalScore);
 
-  document.getElementById('assessment').style.display = 'none';
-  document.getElementById('result').style.display = 'block';
+document.getElementById('landing').style.display = 'none';
+document.getElementById('assessment').style.display = 'none';
+document.getElementById('result').style.display = 'flex';
+
+window.scrollTo(0, 0);
 
   document.getElementById('resultColor').innerText = "Risk Level: " + color;
 
@@ -262,6 +271,10 @@ async function finishAssessment() {
 
 // RESTART
 function restartAssessment() {
+
   document.getElementById('result').style.display = 'none';
-  document.getElementById('landing').style.display = 'block';
+  document.getElementById('assessment').style.display = 'none';
+  document.getElementById('landing').style.display = 'flex';
+
+  window.scrollTo(0, 0);
 }
