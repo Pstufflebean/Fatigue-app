@@ -171,16 +171,3 @@ button:hover {
     font-size: 13px;
   }
 }
-
-/* Assessment and result screen layout */
-
-#assessment,
-#result {
-  min-height: 100vh;
-  height: auto;
-  box-sizing: border-box;
-  padding: 24px 16px;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
