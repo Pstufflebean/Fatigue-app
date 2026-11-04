@@ -142,3 +142,32 @@ button:hover {
     min-height: auto;
   }
 }
+
+/* ADMIN ACCESS LINK */
+
+.admin-access {
+  margin-top: 24px;
+}
+
+.admin-link {
+  display: inline-block;
+  color: #003A8F;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  padding: 8px 0;
+}
+
+.admin-link:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 768px) {
+  .admin-access {
+    margin-top: 16px;
+  }
+
+  .admin-link {
+    font-size: 13px;
+  }
+}
