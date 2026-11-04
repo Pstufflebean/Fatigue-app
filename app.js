@@ -345,35 +345,6 @@ function nextQuestion() {
 }
 
 
-  // ALERT TRACK
-  if (q.alert_trigger && Number(value) === 1) {
-    alertTriggered = true;
-  }
-
-  let score = 0;
-
-  if (q.scoring && q.type !== 'text') {
-    try {
-      const rules = JSON.parse(q.scoring);
-      for (let r of rules) {
-        if (r.min !== undefined && value >= r.min && value <= r.max) score = r.score;
-        if (r.value !== undefined && value === r.value) score = r.score;
-      }
-    } catch {}
-  }
-
-  totalScore += score;
-
-  answers.push({
-    question_id: q.id,
-    value: String(value),
-    weighted_score: score
-  });
-
-  current++;
-  showQuestion();
-}
-
 // COLOR
 function getColor(score) {
   if (score <= 3) return "GREEN";
