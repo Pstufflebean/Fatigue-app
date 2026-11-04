@@ -46,9 +46,23 @@
   <select id="selectInput">
     <option value="">Select</option>
   </select>
-  <input id="textInput" type="text" placeholder="Enter response..." />
+  
+<input id="textInput" type="text" placeholder="Enter response..." />
 
-  <button onclick="nextQuestion()">Next</button>
+<!-- MULTISELECT CHECKBOX CONTAINER -->
+<div
+  id="multiSelectInput"
+  style="
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    width: min(100%, 500px);
+    margin-top: 12px;
+  "
+></div>
+
+<button onclick="nextQuestion()">Next</button>
+
 </div>
 
 <!-- RESULT -->
