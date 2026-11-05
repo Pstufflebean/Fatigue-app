@@ -1,5 +1,4 @@
 
- // Initialize Supabase
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // App State
@@ -12,21 +11,18 @@ let alertTriggered = false;
 let assessmentFinishing = false;
 
 // =====================================================
-// FATIGUE UNIT QUESTIONS
-// Question text must match Supabase exactly
+// FATIGUE UNIT QUESTIONS - SUPABASE UUIDS
 // =====================================================
 
 const FATIGUE_QUESTIONS = {
-  calls: "How many calls have you responded to during your current shift?",
-  transports: "How many of those calls resulted in a patient transport?",
-  overnight: "How many of those calls occurred overnight (2200–0600)?",
-  travel: "How many total hours have you spent driving or riding as a passenger during your current shift?"
+  calls: "77a0074a-ffa3-4156-b7c1-09a419f00fc2",
+  transports: "1ca0ebec-6e2e-49d2-88e7-9a7aac5cb538",
+  overnight: "20f47d94-8a62-4c77-a8ce-d7d541279ed4",
+  travel: "2e9105a8-a742-4a2e-b313-025ec156ed1c"
 };
 
 function getFatigueQuestion(key) {
-  return questions.find(
-    q => q.text.trim() === FATIGUE_QUESTIONS[key]
-  );
+  return questions.find(q => q.id === FATIGUE_QUESTIONS[key]);
 }
 
 function getFatigueAnswer(key) {
@@ -39,7 +35,10 @@ function getFatigueAnswer(key) {
   return Number(answerMap[question.id]) || 0;
 }
 
-// Calculate fatigue units and assessment points
+// =====================================================
+// FATIGUE SCORING
+// =====================================================
+
 function calculateFatigueScore() {
   const calls = getFatigueAnswer('calls');
 
@@ -53,19 +52,15 @@ function calculateFatigueScore() {
   const transports = getFatigueAnswer('transports');
   const overnight = getFatigueAnswer('overnight');
 
-  // Round travel hours to the nearest whole hour
   const roundedTravelHours = Math.floor(
     getFatigueAnswer('travel') + 0.5
   );
 
-  // Maximum of 15 fatigue units
   const fatigueUnits = Math.min(
     15,
     calls + transports + overnight + roundedTravelHours
   );
 
-  // Each fatigue unit = 0.4 assessment points
-  // Maximum contribution = 6 points
   return {
     fatigueUnits,
     fatiguePoints: Number(
@@ -79,15 +74,12 @@ function calculateFatigueScore() {
 // =====================================================
 
 function getCircadianScore() {
-  const now = new Date();
-  const hour = now.getHours();
+  const hour = new Date().getHours();
 
-  // HIGH RISK: 0200–0559
   if (hour >= 2 && hour < 6) {
     return 2;
   }
 
-  // MODERATE RISK: 0000–0159 and 0600–0759
   if (hour < 2 || (hour >= 6 && hour < 8)) {
     return 1;
   }
@@ -159,7 +151,6 @@ function shouldShowQuestion(q) {
   }
 
   try {
-    // Support both JSON strings and JSON objects
     const cond = typeof q.condition === 'string'
       ? JSON.parse(q.condition)
       : q.condition;
@@ -194,12 +185,7 @@ function shouldShowQuestion(q) {
     return true;
 
   } catch (error) {
-    console.error(
-      'Invalid question condition:',
-      error,
-      q
-    );
-
+    console.error('Invalid question condition:', error, q);
     return false;
   }
 }
@@ -209,7 +195,6 @@ function shouldShowQuestion(q) {
 // =====================================================
 
 function showQuestion() {
-  // Skip questions whose conditions are not met
   while (
     current < questions.length &&
     !shouldShowQuestion(questions[current])
@@ -217,7 +202,6 @@ function showQuestion() {
     current++;
   }
 
-  // End assessment when all applicable questions are complete
   if (current >= questions.length) {
     finishAssessment();
     return;
@@ -247,44 +231,28 @@ function showQuestion() {
   txt.value = '';
   multi.replaceChildren();
 
-  // ---------------------------------------------------
   // NUMERIC
-  // ---------------------------------------------------
-
   if (q.type === 'numeric') {
     num.style.display = 'block';
 
-    // Identify fatigue questions
     const fatigueKey = Object.keys(FATIGUE_QUESTIONS).find(
-      key => FATIGUE_QUESTIONS[key] === q.text.trim()
+      key => getFatigueQuestion(key)?.id === q.id
     );
 
     if (fatigueKey) {
       num.min = '0';
-
-      // Travel hours can be decimal
-      // Other fatigue responses must be whole numbers
-      num.step = fatigueKey === 'travel'
-        ? 'any'
-        : '1';
+      num.step = fatigueKey === 'travel' ? 'any' : '1';
     }
   }
 
-  // ---------------------------------------------------
   // BOOLEAN
-  // ---------------------------------------------------
-
   if (q.type === 'boolean') {
     sel.style.display = 'block';
-
     sel.innerHTML +=
       '<option value="0">No</option><option value="1">Yes</option>';
   }
 
-  // ---------------------------------------------------
   // SINGLE SELECT
-  // ---------------------------------------------------
-
   if (q.type === 'select') {
     sel.style.display = 'block';
 
@@ -295,10 +263,8 @@ function showQuestion() {
 
       (opts || []).forEach(o => {
         const option = document.createElement('option');
-
         option.value = o.value;
         option.textContent = o.label;
-
         sel.appendChild(option);
       });
 
@@ -307,10 +273,7 @@ function showQuestion() {
     }
   }
 
-  // ---------------------------------------------------
   // MULTISELECT
-  // ---------------------------------------------------
-
   if (q.type === 'multiselect') {
     multi.style.display = 'flex';
 
@@ -337,7 +300,6 @@ function showQuestion() {
         `;
 
         const checkbox = document.createElement('input');
-
         checkbox.type = 'checkbox';
         checkbox.value = String(o.value);
 
@@ -361,10 +323,7 @@ function showQuestion() {
     }
   }
 
-  // ---------------------------------------------------
   // TEXT
-  // ---------------------------------------------------
-
   if (q.type === 'text') {
     txt.style.display = 'block';
   }
@@ -382,10 +341,7 @@ function nextQuestion() {
   const q = questions[current];
   let value;
 
-  // ---------------------------------------------------
   // COLLECT RESPONSE
-  // ---------------------------------------------------
-
   if (q.type === 'multiselect') {
     value = Array.from(
       document.querySelectorAll(
@@ -424,24 +380,18 @@ function nextQuestion() {
     value = Number(raw);
   }
 
-  // ---------------------------------------------------
   // FATIGUE QUESTION VALIDATION
-  // ---------------------------------------------------
-
   const fatigueKey = Object.keys(FATIGUE_QUESTIONS).find(
-    key => FATIGUE_QUESTIONS[key] === q.text.trim()
+    key => getFatigueQuestion(key)?.id === q.id
   );
 
   if (fatigueKey) {
-    // No negative values
     if (!Number.isFinite(value) || value < 0) {
       return alert(
         'Enter a valid number of zero or greater.'
       );
     }
 
-    // Calls, transports, and overnight calls
-    // must be whole numbers
     if (
       fatigueKey !== 'travel' &&
       !Number.isInteger(value)
@@ -449,8 +399,6 @@ function nextQuestion() {
       return alert('Enter a whole number.');
     }
 
-    // Transport and overnight counts cannot
-    // exceed total calls
     if (
       (
         fatigueKey === 'transports' ||
@@ -464,29 +412,21 @@ function nextQuestion() {
     }
   }
 
-  // Store response for conditional questions
+  // Store for conditional logic
   answerMap[q.id] = value;
 
-  // ---------------------------------------------------
   // ALERT TRACKING
-  // ---------------------------------------------------
-
   if (q.alert_trigger) {
     if (Array.isArray(value)) {
       if (value.includes(1)) {
         alertTriggered = true;
       }
-
     } else if (Number(value) === 1) {
       alertTriggered = true;
     }
   }
 
-  // ---------------------------------------------------
-  // STANDARD QUESTION SCORING
-  // Fatigue questions are scored separately at finish
-  // ---------------------------------------------------
-
+  // STANDARD SCORING
   let score = 0;
 
   if (
@@ -500,7 +440,6 @@ function nextQuestion() {
         : q.scoring;
 
       if (q.type === 'multiselect') {
-        // Add score for every selected option
         for (const selected of value) {
           const rule = (rules || []).find(
             r =>
@@ -514,7 +453,6 @@ function nextQuestion() {
         }
 
       } else {
-        // Numeric, boolean, and single-select scoring
         for (const rule of (rules || [])) {
           if (
             rule.min !== undefined &&
@@ -541,21 +479,15 @@ function nextQuestion() {
 
   totalScore += score;
 
-  // ---------------------------------------------------
   // STORE INDIVIDUAL ANSWER
-  // ---------------------------------------------------
-
   answers.push({
     question_id: q.id,
-
     value: Array.isArray(value)
       ? JSON.stringify(value)
       : String(value),
-
     weighted_score: score
   });
 
-  // Advance to next applicable question
   current++;
   showQuestion();
 }
@@ -565,18 +497,9 @@ function nextQuestion() {
 // =====================================================
 
 function getColor(score) {
-  if (score < 4) {
-    return 'GREEN';
-  }
-
-  if (score < 7) {
-    return 'YELLOW';
-  }
-
-  if (score < 10) {
-    return 'ORANGE';
-  }
-
+  if (score < 4) return 'GREEN';
+  if (score < 7) return 'YELLOW';
+  if (score < 10) return 'ORANGE';
   return 'RED';
 }
 
@@ -585,23 +508,17 @@ function getColor(score) {
 // =====================================================
 
 async function finishAssessment() {
-  // Prevent duplicate submissions
   if (assessmentFinishing) {
     return;
   }
 
   assessmentFinishing = true;
 
-  // ---------------------------------------------------
   // APPLY COMBINED FATIGUE SCORE
-  // ---------------------------------------------------
-
   const fatigue = calculateFatigueScore();
-
   totalScore += fatigue.fatiguePoints;
 
-  // Attribute combined score to the first fatigue
-  // question while retaining all four individual answers
+  // Attribute combined score to first fatigue question
   const callsQuestion = getFatigueQuestion('calls');
 
   if (callsQuestion) {
@@ -614,25 +531,17 @@ async function finishAssessment() {
     }
   }
 
-  // ---------------------------------------------------
   // APPLY CIRCADIAN SCORE
-  // ---------------------------------------------------
-
   const circadianScore = getCircadianScore();
-
   totalScore += circadianScore;
 
-  // Avoid floating-point artifacts
   totalScore = Number(totalScore.toFixed(2));
 
   console.log('Fatigue units:', fatigue.fatigueUnits);
   console.log('Fatigue points:', fatigue.fatiguePoints);
   console.log('Circadian score applied:', circadianScore);
 
-  // ---------------------------------------------------
   // CALCULATE RISK LEVEL
-  // ---------------------------------------------------
-
   const color = getColor(totalScore);
 
   document.getElementById('landing').style.display = 'none';
@@ -644,10 +553,7 @@ async function finishAssessment() {
 
   window.scrollTo(0, 0);
 
-  // ---------------------------------------------------
-  // SAVE ASSESSMENT TO SUPABASE
-  // ---------------------------------------------------
-
+  // SAVE ASSESSMENT
   try {
     const { data, error } = await supabaseClient
       .from('assessments')
@@ -667,7 +573,6 @@ async function finishAssessment() {
 
     const id = data[0].id;
 
-    // Save each answer
     for (const answer of answers) {
       const { error: answerError } = await supabaseClient
         .from('answers')
@@ -696,22 +601,13 @@ async function finishAssessment() {
     );
   }
 
-  // ---------------------------------------------------
   // EMAIL ALERTS
-  // ---------------------------------------------------
-
-  // Trigger for:
-  // 1. A question with an activated alert trigger
-  // 2. Total assessment score of 10 or greater
-
   if (alertTriggered || totalScore >= 10) {
     fetch('/api/send-alert', {
       method: 'POST',
-
       headers: {
         'Content-Type': 'application/json'
       },
-
       body: JSON.stringify({
         answers,
         totalScore,
@@ -723,10 +619,7 @@ async function finishAssessment() {
         const responseText = await response.text();
 
         if (!response.ok) {
-          console.error(
-            'ALERT FAILED:',
-            responseText
-          );
+          console.error('ALERT FAILED:', responseText);
         } else {
           console.log('ALERT SUCCESS');
         }
