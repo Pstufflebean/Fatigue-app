@@ -1,7 +1,13 @@
 
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabaseClient = window.supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_KEY
+);
 
-// App State
+// =====================================================
+// APP STATE
+// =====================================================
+
 let questions = [];
 let current = 0;
 let answers = [];
@@ -11,7 +17,7 @@ let alertTriggered = false;
 let assessmentFinishing = false;
 
 // =====================================================
-// FATIGUE UNIT QUESTIONS - SUPABASE UUIDS
+// FATIGUE QUESTION UUIDS
 // =====================================================
 
 const FATIGUE_QUESTIONS = {
@@ -21,26 +27,34 @@ const FATIGUE_QUESTIONS = {
   travel: "2e9105a8-a742-4a2e-b313-025ec156ed1c"
 };
 
+function getFatigueKey(q) {
+  return Object.keys(FATIGUE_QUESTIONS).find(
+    key => FATIGUE_QUESTIONS[key] === q.id
+  );
+}
+
 function getFatigueQuestion(key) {
-  return questions.find(q => q.id === FATIGUE_QUESTIONS[key]);
+  return questions.find(
+    q => q.id === FATIGUE_QUESTIONS[key]
+  );
 }
 
 function getFatigueAnswer(key) {
-  const question = getFatigueQuestion(key);
+  const q = getFatigueQuestion(key);
 
-  if (!question || answerMap[question.id] === undefined) {
+  if (!q || answerMap[q.id] === undefined) {
     return 0;
   }
 
-  return Number(answerMap[question.id]) || 0;
+  return Number(answerMap[q.id]) || 0;
 }
 
 // =====================================================
-// FATIGUE SCORING
+// FATIGUE UNIT SCORING
 // =====================================================
 
 function calculateFatigueScore() {
-  const calls = getFatigueAnswer('calls');
+  const calls = getFatigueAnswer("calls");
 
   if (calls === 0) {
     return {
@@ -49,23 +63,39 @@ function calculateFatigueScore() {
     };
   }
 
-  const transports = getFatigueAnswer('transports');
-  const overnight = getFatigueAnswer('overnight');
+  const transports = getFatigueAnswer("transports");
+  const overnight = getFatigueAnswer("overnight");
 
   const roundedTravelHours = Math.floor(
-    getFatigueAnswer('travel') + 0.5
+    getFatigueAnswer("travel") + 0.5
   );
 
-  const fatigueUnits = Math.min(
-    15,
-    calls + transports + overnight + roundedTravelHours
-  );
+  // One fatigue unit per call, transport,
+  // overnight call, and rounded travel hour.
+  // No upper cap on fatigue units.
+
+  const fatigueUnits =
+    calls +
+    transports +
+    overnight +
+    roundedTravelHours;
+
+  // Tiered scoring:
+  // 0-10 units = 0 points
+  // 11-15 units = 3 points
+  // 16+ units = 6 points
+
+  let fatiguePoints = 0;
+
+  if (fatigueUnits >= 16) {
+    fatiguePoints = 6;
+  } else if (fatigueUnits >= 11) {
+    fatiguePoints = 3;
+  }
 
   return {
     fatigueUnits,
-    fatiguePoints: Number(
-      (fatigueUnits * 0.4).toFixed(2)
-    )
+    fatiguePoints
   };
 }
 
@@ -100,20 +130,19 @@ async function startAssessment() {
   alertTriggered = false;
   assessmentFinishing = false;
 
-  document.getElementById('landing').style.display = 'none';
-  document.getElementById('assessment').style.display = 'flex';
-  document.getElementById('result').style.display = 'none';
+  document.getElementById("landing").style.display = "none";
+  document.getElementById("assessment").style.display = "flex";
+  document.getElementById("result").style.display = "none";
 
   await loadQuestions();
 
   if (!questions.length) {
     alert(
-      'No questions found. Please check the connection and try again.'
+      "No questions found. Please check the connection and try again."
     );
 
-    document.getElementById('assessment').style.display = 'none';
-    document.getElementById('landing').style.display = 'flex';
-
+    document.getElementById("assessment").style.display = "none";
+    document.getElementById("landing").style.display = "flex";
     return;
   }
 
@@ -122,19 +151,19 @@ async function startAssessment() {
 }
 
 // =====================================================
-// LOAD QUESTIONS FROM SUPABASE
+// LOAD QUESTIONS
 // =====================================================
 
 async function loadQuestions() {
   const { data, error } = await supabaseClient
-    .from('questions')
-    .select('*')
-    .eq('active', true)
-    .order('order_index', { ascending: true });
+    .from("questions")
+    .select("*")
+    .eq("active", true)
+    .order("order_index", { ascending: true });
 
   if (error) {
-    console.error('Error loading questions:', error);
-    alert('Error loading questions');
+    console.error("Error loading questions:", error);
+    alert("Error loading questions");
     return;
   }
 
@@ -151,9 +180,14 @@ function shouldShowQuestion(q) {
   }
 
   try {
-    const cond = typeof q.condition === 'string'
-      ? JSON.parse(q.condition)
-      : q.condition;
+    const cond =
+      typeof q.condition === "string"
+        ? JSON.parse(q.condition)
+        : q.condition;
+
+    if (!cond || !cond.question_id) {
+      return true;
+    }
 
     const previous = answerMap[cond.question_id];
 
@@ -183,9 +217,8 @@ function shouldShowQuestion(q) {
     }
 
     return true;
-
   } catch (error) {
-    console.error('Invalid question condition:', error, q);
+    console.error("Invalid question condition:", error, q);
     return false;
   }
 }
@@ -209,81 +242,85 @@ function showQuestion() {
 
   const q = questions[current];
 
-  document.getElementById('questionText').innerText = q.text;
+  document.getElementById("questionText").innerText = q.text;
 
-  const num = document.getElementById('numericInput');
-  const sel = document.getElementById('selectInput');
-  const txt = document.getElementById('textInput');
-  const multi = document.getElementById('multiSelectInput');
+  const num = document.getElementById("numericInput");
+  const sel = document.getElementById("selectInput");
+  const txt = document.getElementById("textInput");
+  const multi = document.getElementById("multiSelectInput");
 
-  // Hide all input types
-  num.style.display = 'none';
-  sel.style.display = 'none';
-  txt.style.display = 'none';
-  multi.style.display = 'none';
+  // Hide inputs
+  num.style.display = "none";
+  sel.style.display = "none";
+  txt.style.display = "none";
+  multi.style.display = "none";
 
   // Reset inputs
-  num.value = '';
-  num.removeAttribute('step');
-  num.removeAttribute('min');
+  num.value = "";
+  num.removeAttribute("step");
+  num.removeAttribute("min");
 
   sel.innerHTML = '<option value="">Select</option>';
-  txt.value = '';
+  txt.value = "";
   multi.replaceChildren();
 
   // NUMERIC
-  if (q.type === 'numeric') {
-    num.style.display = 'block';
+  if (q.type === "numeric") {
+    num.style.display = "block";
 
-    const fatigueKey = Object.keys(FATIGUE_QUESTIONS).find(
-      key => getFatigueQuestion(key)?.id === q.id
-    );
+    const fatigueKey = getFatigueKey(q);
 
     if (fatigueKey) {
-      num.min = '0';
-      num.step = fatigueKey === 'travel' ? 'any' : '1';
+      num.min = "0";
+      num.step = fatigueKey === "travel" ? "any" : "1";
     }
   }
 
   // BOOLEAN
-  if (q.type === 'boolean') {
-    sel.style.display = 'block';
-    sel.innerHTML +=
-      '<option value="0">No</option><option value="1">Yes</option>';
+  if (q.type === "boolean") {
+    sel.style.display = "block";
+
+    sel.innerHTML =
+      '<option value="">Select</option>' +
+      '<option value="0">No</option>' +
+      '<option value="1">Yes</option>';
   }
 
-  // SINGLE SELECT
-  if (q.type === 'select') {
-    sel.style.display = 'block';
+  // SELECT
+  if (q.type === "select") {
+    sel.style.display = "block";
 
     try {
-      const opts = typeof q.options === 'string'
-        ? JSON.parse(q.options)
-        : q.options;
+      const opts =
+        typeof q.options === "string"
+          ? JSON.parse(q.options)
+          : q.options;
 
       (opts || []).forEach(o => {
-        const option = document.createElement('option');
+        const option = document.createElement("option");
+
         option.value = o.value;
         option.textContent = o.label;
+
         sel.appendChild(option);
       });
-
     } catch (error) {
-      console.error('Invalid select options:', error);
+      console.error("Invalid select options:", error);
     }
   }
 
   // MULTISELECT
-  if (q.type === 'multiselect') {
-    multi.style.display = 'flex';
+  if (q.type === "multiselect") {
+    multi.style.display = "flex";
 
     try {
-      const opts = typeof q.options === 'string'
-        ? JSON.parse(q.options)
-        : q.options;
+      const opts =
+        typeof q.options === "string"
+          ? JSON.parse(q.options)
+          : q.options;
 
       (opts || []).forEach(o => {
-        const label = document.createElement('label');
+        const label = document.createElement("label");
 
         label.style.cssText = `
           display: flex;
@@ -299,8 +336,9 @@ function showQuestion() {
           cursor: pointer;
         `;
 
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
+        const checkbox = document.createElement("input");
+
+        checkbox.type = "checkbox";
         checkbox.value = String(o.value);
 
         checkbox.style.cssText = `
@@ -311,21 +349,20 @@ function showQuestion() {
           flex: 0 0 auto;
         `;
 
-        const labelText = document.createElement('span');
+        const labelText = document.createElement("span");
         labelText.textContent = o.label;
 
         label.append(checkbox, labelText);
         multi.appendChild(label);
       });
-
     } catch (error) {
-      console.error('Invalid multiselect options:', error);
+      console.error("Invalid multiselect options:", error);
     }
   }
 
   // TEXT
-  if (q.type === 'text') {
-    txt.style.display = 'block';
+  if (q.type === "text") {
+    txt.style.display = "block";
   }
 }
 
@@ -334,88 +371,92 @@ function showQuestion() {
 // =====================================================
 
 function nextQuestion() {
-  if (assessmentFinishing || current >= questions.length) {
+  if (
+    assessmentFinishing ||
+    current >= questions.length
+  ) {
     return;
   }
 
   const q = questions[current];
   let value;
 
-  // COLLECT RESPONSE
-  if (q.type === 'multiselect') {
+  // COLLECT ANSWER
+  if (q.type === "multiselect") {
     value = Array.from(
       document.querySelectorAll(
         '#multiSelectInput input[type="checkbox"]:checked'
       ),
       el => Number(el.value)
     );
+  } else if (q.type === "numeric") {
+    const raw = document.getElementById("numericInput").value;
 
-  } else if (q.type === 'numeric') {
-    const raw = document.getElementById('numericInput').value;
-
-    if (raw.trim() === '') {
-      return alert('Enter a number');
+    if (raw.trim() === "") {
+      return alert("Enter a number");
     }
 
     value = Number(raw);
 
     if (!Number.isFinite(value)) {
-      return alert('Enter a valid number');
+      return alert("Enter a valid number");
     }
-
-  } else if (q.type === 'text') {
-    value = document.getElementById('textInput').value.trim();
+  } else if (q.type === "text") {
+    value = document.getElementById("textInput").value.trim();
 
     if (!value) {
-      return alert('Enter a response');
+      return alert("Enter a response");
     }
-
   } else {
-    const raw = document.getElementById('selectInput').value;
+    const raw = document.getElementById("selectInput").value;
 
-    if (raw === '') {
-      return alert('Select an option');
+    if (raw === "") {
+      return alert("Select an option");
     }
 
     value = Number(raw);
   }
 
+  // ===================================================
   // FATIGUE QUESTION VALIDATION
-  const fatigueKey = Object.keys(FATIGUE_QUESTIONS).find(
-    key => getFatigueQuestion(key)?.id === q.id
-  );
+  // ===================================================
+
+  const fatigueKey = getFatigueKey(q);
 
   if (fatigueKey) {
     if (!Number.isFinite(value) || value < 0) {
       return alert(
-        'Enter a valid number of zero or greater.'
+        "Enter a valid number of zero or greater."
       );
     }
 
     if (
-      fatigueKey !== 'travel' &&
+      fatigueKey !== "travel" &&
       !Number.isInteger(value)
     ) {
-      return alert('Enter a whole number.');
+      return alert("Enter a whole number.");
     }
 
     if (
       (
-        fatigueKey === 'transports' ||
-        fatigueKey === 'overnight'
+        fatigueKey === "transports" ||
+        fatigueKey === "overnight"
       ) &&
-      value > getFatigueAnswer('calls')
+      value > getFatigueAnswer("calls")
     ) {
       return alert(
-        'This cannot exceed the total number of calls.'
+        "This cannot exceed the total number of calls."
       );
     }
   }
 
-  // Store for conditional logic
+  // STORE FOR CONDITIONAL LOGIC
   answerMap[q.id] = value;
 
+  // ===================================================
   // ALERT TRACKING
+  // ===================================================
+
   if (q.alert_trigger) {
     if (Array.isArray(value)) {
       if (value.includes(1)) {
@@ -426,20 +467,27 @@ function nextQuestion() {
     }
   }
 
-  // STANDARD SCORING
+  // ===================================================
+  // STANDARD QUESTION SCORING
+  // ===================================================
+
   let score = 0;
+
+  // Fatigue questions are scored together
+  // at the end of the assessment.
 
   if (
     !fatigueKey &&
     q.scoring &&
-    q.type !== 'text'
+    q.type !== "text"
   ) {
     try {
-      const rules = typeof q.scoring === 'string'
-        ? JSON.parse(q.scoring)
-        : q.scoring;
+      const rules =
+        typeof q.scoring === "string"
+          ? JSON.parse(q.scoring)
+          : q.scoring;
 
-      if (q.type === 'multiselect') {
+      if (q.type === "multiselect") {
         for (const selected of value) {
           const rule = (rules || []).find(
             r =>
@@ -451,9 +499,8 @@ function nextQuestion() {
             score += Number(rule.score) || 0;
           }
         }
-
       } else {
-        for (const rule of (rules || [])) {
+        for (const rule of rules || []) {
           if (
             rule.min !== undefined &&
             rule.max !== undefined &&
@@ -471,15 +518,14 @@ function nextQuestion() {
           }
         }
       }
-
     } catch (error) {
-      console.error('Scoring error:', error);
+      console.error("Scoring error:", error);
     }
   }
 
   totalScore += score;
 
-  // STORE INDIVIDUAL ANSWER
+  // SAVE INDIVIDUAL ANSWER IN MEMORY
   answers.push({
     question_id: q.id,
     value: Array.isArray(value)
@@ -497,10 +543,10 @@ function nextQuestion() {
 // =====================================================
 
 function getColor(score) {
-  if (score < 4) return 'GREEN';
-  if (score < 7) return 'YELLOW';
-  if (score < 10) return 'ORANGE';
-  return 'RED';
+  if (score < 4) return "GREEN";
+  if (score < 7) return "YELLOW";
+  if (score < 10) return "ORANGE";
+  return "RED";
 }
 
 // =====================================================
@@ -514,12 +560,16 @@ async function finishAssessment() {
 
   assessmentFinishing = true;
 
-  // APPLY COMBINED FATIGUE SCORE
+  // CALCULATE FATIGUE SCORE
   const fatigue = calculateFatigueScore();
+
   totalScore += fatigue.fatiguePoints;
 
-  // Attribute combined score to first fatigue question
-  const callsQuestion = getFatigueQuestion('calls');
+  // Store combined fatigue score under Q1.
+  // Q2-Q4 retain zero weighted_score because
+  // the four questions form one scoring block.
+
+  const callsQuestion = getFatigueQuestion("calls");
 
   if (callsQuestion) {
     const callsAnswer = answers.find(
@@ -531,32 +581,36 @@ async function finishAssessment() {
     }
   }
 
-  // APPLY CIRCADIAN SCORE
+  // CIRCADIAN ADJUSTMENT
   const circadianScore = getCircadianScore();
-  totalScore += circadianScore;
 
+  totalScore += circadianScore;
   totalScore = Number(totalScore.toFixed(2));
 
-  console.log('Fatigue units:', fatigue.fatigueUnits);
-  console.log('Fatigue points:', fatigue.fatiguePoints);
-  console.log('Circadian score applied:', circadianScore);
+  console.log("Fatigue units:", fatigue.fatigueUnits);
+  console.log("Fatigue points:", fatigue.fatiguePoints);
+  console.log("Circadian points:", circadianScore);
+  console.log("Final assessment score:", totalScore);
 
-  // CALCULATE RISK LEVEL
   const color = getColor(totalScore);
 
-  document.getElementById('landing').style.display = 'none';
-  document.getElementById('assessment').style.display = 'none';
-  document.getElementById('result').style.display = 'flex';
+  // DISPLAY RESULT
+  document.getElementById("landing").style.display = "none";
+  document.getElementById("assessment").style.display = "none";
+  document.getElementById("result").style.display = "flex";
 
-  document.getElementById('resultColor').innerText =
-    'Risk Level: ' + color;
+  document.getElementById("resultColor").innerText =
+    "Risk Level: " + color;
 
   window.scrollTo(0, 0);
 
-  // SAVE ASSESSMENT
+  // ===================================================
+  // SAVE TO SUPABASE
+  // ===================================================
+
   try {
     const { data, error } = await supabaseClient
-      .from('assessments')
+      .from("assessments")
       .insert([{
         total_score: totalScore,
         risk_color: color
@@ -568,16 +622,16 @@ async function finishAssessment() {
     }
 
     if (!data || !data.length) {
-      throw new Error('No assessment ID returned');
+      throw new Error("No assessment ID returned");
     }
 
-    const id = data[0].id;
+    const assessmentId = data[0].id;
 
     for (const answer of answers) {
       const { error: answerError } = await supabaseClient
-        .from('answers')
+        .from("answers")
         .insert([{
-          assessment_id: id,
+          assessment_id: assessmentId,
           question_id: answer.question_id,
           value: answer.value,
           weighted_score: answer.weighted_score
@@ -589,24 +643,26 @@ async function finishAssessment() {
     }
 
     console.log(
-      'Assessment and answers saved successfully'
+      "Assessment and answers saved successfully"
     );
-
   } catch (error) {
-    console.error('Assessment save failed:', error);
+    console.error("Assessment save failed:", error);
 
     alert(
-      'Your risk level was calculated, but the assessment ' +
-      'could not be fully saved. Please notify your supervisor.'
+      "Your risk level was calculated, but the assessment " +
+      "could not be fully saved. Please notify your supervisor."
     );
   }
 
+  // ===================================================
   // EMAIL ALERTS
+  // ===================================================
+
   if (alertTriggered || totalScore >= 10) {
-    fetch('/api/send-alert', {
-      method: 'POST',
+    fetch("/api/send-alert", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json'
+        "Content-Type": "application/json"
       },
       body: JSON.stringify({
         answers,
@@ -619,13 +675,16 @@ async function finishAssessment() {
         const responseText = await response.text();
 
         if (!response.ok) {
-          console.error('ALERT FAILED:', responseText);
+          console.error(
+            "ALERT FAILED:",
+            responseText
+          );
         } else {
-          console.log('ALERT SUCCESS');
+          console.log("ALERT SUCCESS");
         }
       })
       .catch(error => {
-        console.error('ALERT FAILED:', error);
+        console.error("ALERT FAILED:", error);
       });
   }
 }
@@ -635,9 +694,9 @@ async function finishAssessment() {
 // =====================================================
 
 function restartAssessment() {
-  document.getElementById('result').style.display = 'none';
-  document.getElementById('assessment').style.display = 'none';
-  document.getElementById('landing').style.display = 'flex';
+  document.getElementById("result").style.display = "none";
+  document.getElementById("assessment").style.display = "none";
+  document.getElementById("landing").style.display = "flex";
 
   window.scrollTo(0, 0);
 }

@@ -1,27 +1,323 @@
+
 <!DOCTYPE html>
-<html>
+<html lang="en">
+
 <head>
-  <title>Admin Panel</title>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <title>LCAD Fatigue Assessment - Admin Panel</title>
+
   <link rel="stylesheet" href="style.css">
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+
+  <style>
+    /* ==========================================
+       ADMIN PANEL LAYOUT
+       ========================================== */
+
+    #adminPanel {
+      display: none;
+      padding: 20px;
+      max-width: 1100px;
+      margin: 0 auto;
+      box-sizing: border-box;
+    }
+
+    #adminPanel h2 {
+      margin-bottom: 22px;
+    }
+
+    #assessmentList {
+      width: 100%;
+    }
+
+    /* ==========================================
+       ASSESSMENT BLOCKS
+       ========================================== */
+
+    .admin-assessment-block {
+      border: 1px solid #d5dce4;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      overflow: hidden;
+      background: #ffffff;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+
+    .admin-assessment-header {
+      padding: 15px;
+      cursor: pointer;
+      background: #f4f6f8;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .admin-assessment-header:hover {
+      background: #e9edf2;
+    }
+
+    .admin-assessment-header:focus-visible {
+      outline: 2px solid #225b9a;
+      outline-offset: -2px;
+    }
+
+    .admin-header-main {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 14px;
+    }
+
+    .admin-header-score {
+      color: #334155;
+      font-weight: 600;
+    }
+
+    .admin-header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    .admin-risk-badge {
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+
+    .admin-expand-icon {
+      font-size: 22px;
+      font-weight: 500;
+      color: #334155;
+      width: 20px;
+      text-align: center;
+    }
+
+    /* ==========================================
+       EXPANDED DETAILS
+       ========================================== */
+
+    .admin-assessment-details {
+      padding: 18px;
+      background: #ffffff;
+    }
+
+    .admin-section-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #173b62;
+      margin-bottom: 12px;
+    }
+
+    .admin-answer-heading {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 10px 12px;
+      background: #eef2f6;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #475569;
+      margin-bottom: 4px;
+    }
+
+    .admin-answer-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      padding: 13px 12px;
+      border-bottom: 1px solid #e6eaf0;
+    }
+
+    .admin-answer-row:last-child {
+      border-bottom: none;
+    }
+
+    .admin-answer-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .admin-question-text {
+      font-size: 14px;
+      font-weight: 600;
+      color: #1e293b;
+      margin-bottom: 5px;
+      line-height: 1.4;
+    }
+
+    .admin-answer-value {
+      font-size: 14px;
+      color: #334155;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }
+
+    .admin-answer-points {
+      min-width: 55px;
+      text-align: right;
+      font-size: 15px;
+      font-weight: 700;
+      color: #173b62;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .admin-scoring-note {
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 6px;
+      line-height: 1.5;
+    }
+
+    /* ==========================================
+       SCORING BREAKDOWN
+       ========================================== */
+
+    .admin-breakdown {
+      margin-top: 22px;
+      padding: 16px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+    }
+
+    .admin-breakdown-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      padding: 8px 0;
+      font-size: 14px;
+      color: #334155;
+    }
+
+    .admin-breakdown-row strong {
+      color: #173b62;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .admin-breakdown-row small {
+      color: #64748b;
+      font-size: 11px;
+    }
+
+    .admin-total-row {
+      border-top: 1px solid #cbd5e1;
+      margin-top: 7px;
+      padding-top: 13px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    /* ==========================================
+       MOBILE LAYOUT
+       ========================================== */
+
+    @media (max-width: 600px) {
+      #adminPanel {
+        padding: 12px;
+      }
+
+      .admin-assessment-header {
+        padding: 12px;
+        align-items: flex-start;
+      }
+
+      .admin-header-main {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 5px;
+      }
+
+      .admin-header-right {
+        gap: 8px;
+      }
+
+      .admin-assessment-details {
+        padding: 12px;
+      }
+
+      .admin-answer-row {
+        padding: 12px 6px;
+        gap: 10px;
+      }
+
+      .admin-question-text,
+      .admin-answer-value {
+        font-size: 13px;
+      }
+
+      .admin-answer-points {
+        font-size: 14px;
+        min-width: 42px;
+      }
+
+      .admin-breakdown {
+        padding: 12px;
+      }
+    }
+  </style>
 </head>
 
 <body>
 
-<div id="login" style="text-align:center; margin-top:100px;">
-  <h2>Admin Access</h2>
-  <input type="password" id="passwordInput" placeholder="Enter password" class="input-large"/>
-  <br><br>
-  <button onclick="login()">Enter</button>
-</div>
+  <!-- ==========================================
+       ADMIN LOGIN
+       ========================================== -->
 
-<div id="adminPanel" style="display:none; padding:20px;">
-  <h2>Assessments</h2>
-  <div id="assessmentList"></div>
-</div>
+  <div
+    id="login"
+    style="text-align:center; margin-top:100px;"
+  >
+    <h2>Admin Access</h2>
 
-<script src="config.js"></script>
-<script src="admin.js"></script>
+    <input
+      type="password"
+      id="passwordInput"
+      placeholder="Enter password"
+      class="input-large"
+      autocomplete="current-password"
+    >
+
+    <br><br>
+
+    <button onclick="login()">
+      Enter
+    </button>
+  </div>
+
+  <!-- ==========================================
+       ADMIN ASSESSMENT PANEL
+       ========================================== -->
+
+  <div id="adminPanel">
+    <h2>Assessments</h2>
+
+    <div id="assessmentList"></div>
+  </div>
+
+  <!-- ==========================================
+       APPLICATION SCRIPTS
+       ========================================== -->
+
+  <script src="config.js"></script>
+  <script src="admin.js"></script>
 
 </body>
 </html>
