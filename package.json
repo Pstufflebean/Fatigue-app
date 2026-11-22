@@ -19,6 +19,7 @@
   },
   "homepage": "https://github.com/Pstufflebean/Fatigue-app#readme",
   "dependencies": {
+    "@supabase/supabase-js": "^2.119.2",
     "resend": "^6.12.2"
   }
 }
