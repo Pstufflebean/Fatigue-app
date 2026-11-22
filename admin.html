@@ -106,7 +106,7 @@
     }
 
     /* ==========================================
-       EXPANDED DETAILS
+       EXPANDED ASSESSMENT DETAILS
        ========================================== */
 
     .admin-assessment-details {
@@ -185,6 +185,59 @@
     }
 
     /* ==========================================
+       CATEGORY GROUPING
+       ========================================== */
+
+    .admin-category-section {
+      margin: 0 0 22px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .admin-category-heading {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 13px 14px;
+      background: #eaf0f7;
+      color: #173b62;
+      font-weight: 700;
+    }
+
+    .admin-category-heading strong,
+    .admin-category-subtotal strong {
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .admin-category-section .admin-answer-heading {
+      margin: 0;
+      border-radius: 0;
+    }
+
+    .admin-category-section .admin-answer-row {
+      margin: 0 12px;
+    }
+
+    .admin-category-subtotal {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      background: #f8fafc;
+      font-weight: 700;
+      color: #173b62;
+      border-top: 1px solid #cbd5e1;
+    }
+
+    .admin-empty-category {
+      padding: 8px 14px;
+      color: #64748b;
+      font-size: 13px;
+    }
+
+    /* ==========================================
        SCORING BREAKDOWN
        ========================================== */
 
@@ -223,6 +276,14 @@
       padding-top: 13px;
       font-weight: 700;
       color: #0f172a;
+    }
+
+    .admin-warning-row {
+      color: #9a3412;
+    }
+
+    .admin-category-summary {
+      margin-top: 24px;
     }
 
     /* ==========================================
@@ -271,6 +332,12 @@
       .admin-breakdown {
         padding: 12px;
       }
+
+      .admin-category-heading,
+      .admin-category-subtotal {
+        padding: 12px;
+        font-size: 13px;
+      }
     }
   </style>
 </head>
@@ -307,9 +374,11 @@
        ========================================== -->
 
   <div id="adminPanel">
+
     <h2>Assessments</h2>
 
     <div id="assessmentList"></div>
+
   </div>
 
   <!-- ==========================================
