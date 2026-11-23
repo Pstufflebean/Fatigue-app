@@ -2,8 +2,13 @@
 const { createClient } = require("@supabase/supabase-js");
 const { Resend } = require("resend");
 
+// =====================================================
+// CONFIGURATION
+// =====================================================
+
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_ANSWERS = 20;
+const MAX_RECIPIENTS = 20;
 
 const AGENCY_ID = "LCAD";
 
@@ -13,8 +18,14 @@ const PEER_SUPPORT_ID =
 const PROVIDER_NAME_ID =
   "c93bd0a1-3247-4821-b7fa-9cb7fd03874b";
 
-const ALERT_TO = "patrikstufflebean@yahoo.com";
-const ALERT_FROM = "Fatigue App <alerts@atlasemergencysystems.com>";
+const ALERT_FROM =
+  "Fatigue App <dshift@atlasemergencysystems.com>";
+
+const ALERT_SUBJECT = "Fatigue Alert Test";
+
+// =====================================================
+// HELPER FUNCTIONS
+// =====================================================
 
 function escapeHtml(value) {
   return String(value ?? "").replace(
@@ -37,6 +48,26 @@ function isUuid(value) {
   );
 }
 
+function getAlertRecipients() {
+  return [
+    ...new Set(
+      (
+        process.env.FATIGUE_ALERT_RECIPIENTS || ""
+      )
+        .split(",")
+        .map(email => email.trim().toLowerCase())
+        .filter(Boolean)
+    )
+  ];
+}
+
+function validEmail(email) {
+  return (
+    typeof email === "string" &&
+    /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/.test(email)
+  );
+}
+
 function logSupabaseDiagnostics(url) {
   console.log("Supabase URL diagnostics:", {
     validHttps: url.startsWith("https://"),
@@ -49,13 +80,17 @@ function logSupabaseDiagnostics(url) {
   });
 }
 
+// =====================================================
+// MAIN API HANDLER
+// =====================================================
+
 module.exports = async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("X-Content-Type-Options", "nosniff");
 
-  // =====================================================
-  // REQUEST METHOD VALIDATION
-  // =====================================================
+  // ===================================================
+  // REQUEST METHOD
+  // ===================================================
 
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
@@ -65,9 +100,9 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  // =====================================================
-  // REQUEST SIZE VALIDATION
-  // =====================================================
+  // ===================================================
+  // REQUEST SIZE
+  // ===================================================
 
   const contentLength = Number(
     req.headers["content-length"] || 0
@@ -83,11 +118,12 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  // =====================================================
+  // ===================================================
   // ENVIRONMENT CONFIGURATION
-  // =====================================================
+  // ===================================================
 
   const supabaseUrl = process.env.SUPABASE_URL;
+
   const serviceRoleKey =
     process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -101,14 +137,13 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  // Diagnostic information only.
-  // Does not log the Supabase URL or credentials.
+  // Log URL format only, never credentials.
 
   logSupabaseDiagnostics(supabaseUrl);
 
-  // =====================================================
-  // REQUEST BODY VALIDATION
-  // =====================================================
+  // ===================================================
+  // VALIDATE REQUEST BODY
+  // ===================================================
 
   let body = req.body;
 
@@ -168,9 +203,9 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  // =====================================================
-  // CREATE SUPABASE CLIENT
-  // =====================================================
+  // ===================================================
+  // SUPABASE CLIENT
+  // ===================================================
 
   const supabase = createClient(
     supabaseUrl,
@@ -183,9 +218,9 @@ module.exports = async function handler(req, res) {
     }
   );
 
-  // =====================================================
+  // ===================================================
   // SAVE ASSESSMENT
-  // =====================================================
+  // ===================================================
 
   let saved;
 
@@ -247,15 +282,17 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  // =====================================================
-  // SERVER-SIDE EMAIL ALERTS
-  // =====================================================
-  // Assessment is already saved at this point.
+  // ===================================================
+  // EMAIL ALERT PROCESSING
+  // ===================================================
+  // Assessment is already saved.
   // Email failure must not undo the assessment.
 
   let alertStatus = "not_required";
 
   try {
+    // Retrieve the saved assessment from Supabase.
+
     const {
       data: assessment,
       error: assessmentError
@@ -273,6 +310,8 @@ module.exports = async function handler(req, res) {
         "Assessment lookup failed"
       );
     }
+
+    // Retrieve only the answers needed for alerts.
 
     const {
       data: storedAnswers,
@@ -295,9 +334,9 @@ module.exports = async function handler(req, res) {
       );
     }
 
-    // ===================================================
-    // ALERT TRIGGER CONDITIONS
-    // ===================================================
+    // =================================================
+    // ALERT CONDITIONS
+    // =================================================
 
     const peerRequested =
       storedAnswers?.some(
@@ -309,8 +348,14 @@ module.exports = async function handler(req, res) {
     const redRisk =
       Number(assessment.total_score) >= 10;
 
+    // Send alerts only when a trigger is present.
+
     if (peerRequested || redRisk) {
       alertStatus = "failed";
+
+      // ===============================================
+      // RESEND CONFIGURATION
+      // ===============================================
 
       if (!process.env.RESEND_API_KEY) {
         throw new Error(
@@ -318,8 +363,22 @@ module.exports = async function handler(req, res) {
         );
       }
 
-      // Retrieve provider name only when
-      // peer-support resources were requested.
+      const recipients = getAlertRecipients();
+
+      if (
+        recipients.length === 0 ||
+        recipients.length > MAX_RECIPIENTS ||
+        recipients.some(email => !validEmail(email))
+      ) {
+        throw new Error(
+          "Fatigue alert recipient configuration invalid"
+        );
+      }
+
+      // ===============================================
+      // PROVIDER NAME
+      // ===============================================
+      // Include only when peer support is requested.
 
       const providerName = peerRequested
         ? (
@@ -331,12 +390,14 @@ module.exports = async function handler(req, res) {
           )
         : null;
 
+      // ===============================================
+      // ALERT REASONS
+      // ===============================================
+
       const reasons = [];
 
       if (redRisk) {
-        reasons.push(
-          "RED fatigue risk"
-        );
+        reasons.push("RED fatigue risk");
       }
 
       if (peerRequested) {
@@ -345,9 +406,9 @@ module.exports = async function handler(req, res) {
         );
       }
 
-      // =================================================
+      // ===============================================
       // EMAIL CONTENT
-      // =================================================
+      // ===============================================
 
       const html = `
         <h2>Fatigue Alert Test</h2>
@@ -391,53 +452,91 @@ module.exports = async function handler(req, res) {
         </p>
       `;
 
-      // =================================================
-      // SEND EMAIL
-      // =================================================
+      // ===============================================
+      // SEND INDIVIDUAL EMAILS
+      // ===============================================
 
       const resend = new Resend(
         process.env.RESEND_API_KEY
       );
 
-      const {
-        data: emailData,
-        error: sendError
-      } = await resend.emails.send({
-        from: ALERT_FROM,
-        to: [ALERT_TO],
-        subject: "Fatigue Alert Test",
-        html
-      });
+      let successfulSends = 0;
+      let failedSends = 0;
 
-      
-if (sendError) {
-  console.error("Resend API rejected email:", {
-    name: sendError.name,
-    message: sendError.message,
-    statusCode: sendError.statusCode
-  });
+      for (const recipient of recipients) {
+        try {
+          const {
+            data: emailData,
+            error: sendError
+          } = await resend.emails.send({
+            from: ALERT_FROM,
+            to: [recipient],
+            subject: ALERT_SUBJECT,
+            html
+          });
 
-  throw new Error("Resend rejected alert");
-}
+          if (sendError || !emailData?.id) {
+            failedSends++;
 
-if (!emailData?.id) {
-  console.error(
-    "Resend returned no email confirmation ID"
-  );
+            console.error(
+              "Fatigue alert delivery failed:",
+              {
+                name:
+                  sendError?.name ||
+                  "No confirmation",
+                message:
+                  sendError?.message ||
+                  "No email ID returned",
+                statusCode:
+                  sendError?.statusCode || null
+              }
+            );
 
-  throw new Error(
-    "Resend did not confirm email acceptance"
-  );
-}
+            continue;
+          }
 
+          successfulSends++;
 
-      alertStatus = "sent";
+        } catch (error) {
+          failedSends++;
+
+          console.error(
+            "Fatigue alert delivery exception:",
+            {
+              name:
+                error?.name || "Unknown",
+              message:
+                error?.message ||
+                "Unknown error"
+            }
+          );
+        }
+      }
+
+      // ===============================================
+      // DELIVERY SUMMARY
+      // ===============================================
+
+      console.log(
+        "Fatigue alert delivery summary:",
+        {
+          recipientCount: recipients.length,
+          accepted: successfulSends,
+          failed: failedSends
+        }
+      );
+
+      if (failedSends === 0) {
+        alertStatus = "sent";
+      } else if (successfulSends > 0) {
+        alertStatus = "partial";
+      } else {
+        alertStatus = "failed";
+      }
     }
 
   } catch (error) {
     alertStatus = "failed";
-
-    // Do not log provider names or answers.
 
     console.error(
       "Post-save alert processing failed:",
@@ -445,9 +544,9 @@ if (!emailData?.id) {
     );
   }
 
-  // =====================================================
+  // ===================================================
   // FINAL RESPONSE
-  // =====================================================
+  // ===================================================
 
   return res.status(201).json({
     saved: true,
