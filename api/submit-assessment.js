@@ -151,10 +151,12 @@ module.exports = async function handler(req, res) {
     );
 
     if (error) {
-      console.error(
-        'Assessment RPC failed:',
-        error.code || 'unknown'
-      );
+      console.error('Assessment RPC failed:', {
+  code: error.code,
+  message: error.message,
+  details: error.details,
+  hint: error.hint
+});
 
       if (error.code === 'P0001') {
         return res.status(400).json({
