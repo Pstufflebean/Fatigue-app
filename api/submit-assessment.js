@@ -19,7 +19,7 @@ const PROVIDER_NAME_ID =
   "c93bd0a1-3247-4821-b7fa-9cb7fd03874b";
 
 const ALERT_FROM =
-  "Fatigue App <dshift@atlasemergencysystems.com>";
+  "Fatigue App <alerts@atlasemergencysystems.com>";
 
 const ALERT_SUBJECT = "Fatigue Alert Test";
 
