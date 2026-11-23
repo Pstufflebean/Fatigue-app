@@ -409,11 +409,27 @@ module.exports = async function handler(req, res) {
         html
       });
 
-      if (sendError || !emailData?.id) {
-        throw new Error(
-          "Resend did not confirm email acceptance"
-        );
-      }
+      
+if (sendError) {
+  console.error("Resend API rejected email:", {
+    name: sendError.name,
+    message: sendError.message,
+    statusCode: sendError.statusCode
+  });
+
+  throw new Error("Resend rejected alert");
+}
+
+if (!emailData?.id) {
+  console.error(
+    "Resend returned no email confirmation ID"
+  );
+
+  throw new Error(
+    "Resend did not confirm email acceptance"
+  );
+}
+
 
       alertStatus = "sent";
     }
