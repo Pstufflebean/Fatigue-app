@@ -847,6 +847,9 @@
 
           <strong>High Risk:</strong>
           Assessments with a fatigue score greater than 12.
+          This is a separate reporting metric and does not
+          change existing RED risk classification or alert
+          thresholds.
 
           <br><br>
 
@@ -862,14 +865,29 @@
 
           <br><br>
 
+          <strong>Reporting Period Boundaries:</strong>
+          The final operational night may include assessments
+          completed early the following calendar day.
+          All other statistics use actual assessment
+          completion dates within the selected period.
+
+          <br><br>
+
           <strong>Time Zone:</strong>
           Central Time, including daylight saving adjustments.
 
           <br><br>
 
+          <strong>Historical Scoring:</strong>
+          Reports use previously saved assessment scores
+          and weighted scoring values.
+
+          <br><br>
+
           <strong>Privacy:</strong>
           Reports contain aggregate statistics and exclude
-          provider names.
+          provider names. Generated reports are intended
+          for confidential administrative use.
 
         </div>
 
@@ -896,8 +914,8 @@
           role="status"
           aria-live="polite"
         >
-          PDF generation will be enabled after the reporting
-          analytics module is installed.
+          Select a reporting period to generate your
+          Operational Fatigue Risk Report.
         </div>
 
       </div>
@@ -913,6 +931,7 @@
   <script src="config.js"></script>
   <script src="admin.js"></script>
   <script src="reporting.js"></script>
+  <script src="report-pdf.js"></script>
 
 </body>
 </html>
