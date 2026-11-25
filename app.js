@@ -13,8 +13,10 @@ let current = 0;
 let answers = [];
 let totalScore = 0;
 let answerMap = {};
-let alertTriggered = false;
 let assessmentFinishing = false;
+let assessmentSaved = false;
+let assessmentLoading = false;
+let submissionUnconfirmed = false;
 
 // =====================================================
 // FATIGUE QUESTION UUIDS
@@ -50,109 +52,63 @@ function getFatigueAnswer(key) {
 }
 
 // =====================================================
-// FATIGUE UNIT SCORING
-// =====================================================
-
-function calculateFatigueScore() {
-  const calls = getFatigueAnswer("calls");
-
-  if (calls === 0) {
-    return {
-      fatigueUnits: 0,
-      fatiguePoints: 0
-    };
-  }
-
-  const transports = getFatigueAnswer("transports");
-  const overnight = getFatigueAnswer("overnight");
-
-  const roundedTravelHours = Math.floor(
-    getFatigueAnswer("travel") + 0.5
-  );
-
-  // One fatigue unit per call, transport,
-  // overnight call, and rounded travel hour.
-  // No upper cap on fatigue units.
-
-  const fatigueUnits =
-    calls +
-    transports +
-    overnight +
-    roundedTravelHours;
-
-  // Tiered scoring:
-  // 0-10 units = 0 points
-  // 11-15 units = 3 points
-  // 16+ units = 6 points
-
-  let fatiguePoints = 0;
-
-  if (fatigueUnits >= 16) {
-    fatiguePoints = 6;
-  } else if (fatigueUnits >= 11) {
-    fatiguePoints = 3;
-  }
-
-  return {
-    fatigueUnits,
-    fatiguePoints
-  };
-}
-
-// =====================================================
-// CIRCADIAN SCORING
-// =====================================================
-
-function getCircadianScore() {
-  const hour = new Date().getHours();
-
-  if (hour >= 2 && hour < 6) {
-    return 2;
-  }
-
-  if (hour < 2 || (hour >= 6 && hour < 8)) {
-    return 1;
-  }
-
-  return 0;
-}
-
-// =====================================================
 // START ASSESSMENT
 // =====================================================
 
 async function startAssessment() {
+  if (
+    assessmentLoading ||
+    assessmentFinishing ||
+    submissionUnconfirmed
+  ) {
+    return;
+  }
+
+  assessmentLoading = true;
+
   current = 0;
   answers = [];
   totalScore = 0;
   questions = [];
   answerMap = {};
-  alertTriggered = false;
   assessmentFinishing = false;
+  assessmentSaved = false;
 
   document.getElementById("landing").style.display = "none";
   document.getElementById("assessment").style.display = "flex";
   document.getElementById("result").style.display = "none";
 
-  await loadQuestions();
+  try {
+    await loadQuestions();
 
-  if (!questions.length) {
+    if (!questions.length) {
+      throw new Error("No active questions found");
+    }
+
+    window.scrollTo(0, 0);
+    showQuestion();
+
+  } catch (error) {
+    console.error("Unable to load assessment");
+
     alert(
-      "No questions found. Please check the connection and try again."
+      "Unable to load assessment questions. " +
+      "Please check your connection and try again."
     );
 
     document.getElementById("assessment").style.display = "none";
     document.getElementById("landing").style.display = "flex";
-    return;
-  }
 
-  window.scrollTo(0, 0);
-  showQuestion();
+  } finally {
+    assessmentLoading = false;
+  }
 }
 
 // =====================================================
 // LOAD QUESTIONS
 // =====================================================
+// The browser retains read access to active questions.
+// Assessment submissions are handled by the server API.
 
 async function loadQuestions() {
   const { data, error } = await supabaseClient
@@ -162,9 +118,7 @@ async function loadQuestions() {
     .order("order_index", { ascending: true });
 
   if (error) {
-    console.error("Error loading questions:", error);
-    alert("Error loading questions");
-    return;
+    throw new Error("Error loading questions");
   }
 
   questions = data || [];
@@ -217,8 +171,9 @@ function shouldShowQuestion(q) {
     }
 
     return true;
+
   } catch (error) {
-    console.error("Invalid question condition:", error, q);
+    console.error("Invalid question condition");
     return false;
   }
 }
@@ -250,12 +205,14 @@ function showQuestion() {
   const multi = document.getElementById("multiSelectInput");
 
   // Hide inputs
+
   num.style.display = "none";
   sel.style.display = "none";
   txt.style.display = "none";
   multi.style.display = "none";
 
   // Reset inputs
+
   num.value = "";
   num.removeAttribute("step");
   num.removeAttribute("min");
@@ -264,19 +221,27 @@ function showQuestion() {
   txt.value = "";
   multi.replaceChildren();
 
+  // ===================================================
   // NUMERIC
+  // ===================================================
+
   if (q.type === "numeric") {
     num.style.display = "block";
 
     const fatigueKey = getFatigueKey(q);
 
-    if (fatigueKey) {
-      num.min = "0";
-      num.step = fatigueKey === "travel" ? "any" : "1";
-    }
+    num.min = "0";
+
+    // Travel hours permit decimal values.
+    // All other numeric answers require whole numbers.
+
+    num.step = fatigueKey === "travel" ? "any" : "1";
   }
 
+  // ===================================================
   // BOOLEAN
+  // ===================================================
+
   if (q.type === "boolean") {
     sel.style.display = "block";
 
@@ -286,7 +251,10 @@ function showQuestion() {
       '<option value="1">Yes</option>';
   }
 
+  // ===================================================
   // SELECT
+  // ===================================================
+
   if (q.type === "select") {
     sel.style.display = "block";
 
@@ -304,12 +272,16 @@ function showQuestion() {
 
         sel.appendChild(option);
       });
+
     } catch (error) {
-      console.error("Invalid select options:", error);
+      console.error("Invalid select options");
     }
   }
 
+  // ===================================================
   // MULTISELECT
+  // ===================================================
+
   if (q.type === "multiselect") {
     multi.style.display = "flex";
 
@@ -355,12 +327,16 @@ function showQuestion() {
         label.append(checkbox, labelText);
         multi.appendChild(label);
       });
+
     } catch (error) {
-      console.error("Invalid multiselect options:", error);
+      console.error("Invalid multiselect options");
     }
   }
 
+  // ===================================================
   // TEXT
+  // ===================================================
+
   if (q.type === "text") {
     txt.style.display = "block";
   }
@@ -372,16 +348,23 @@ function showQuestion() {
 
 function nextQuestion() {
   if (
+    assessmentLoading ||
     assessmentFinishing ||
+    assessmentSaved ||
+    submissionUnconfirmed ||
     current >= questions.length
   ) {
     return;
   }
 
   const q = questions[current];
+
   let value;
 
-  // COLLECT ANSWER
+  // ===================================================
+  // COLLECT MULTISELECT ANSWER
+  // ===================================================
+
   if (q.type === "multiselect") {
     value = Array.from(
       document.querySelectorAll(
@@ -389,41 +372,71 @@ function nextQuestion() {
       ),
       el => Number(el.value)
     );
+
+    if (
+      value.some(
+        selected => !Number.isFinite(selected)
+      )
+    ) {
+      return alert("Select valid options.");
+    }
+
+  // ===================================================
+  // COLLECT NUMERIC ANSWER
+  // ===================================================
+
   } else if (q.type === "numeric") {
-    const raw = document.getElementById("numericInput").value;
+    const raw =
+      document.getElementById("numericInput").value;
 
     if (raw.trim() === "") {
-      return alert("Enter a number");
+      return alert("Enter a number.");
     }
 
     value = Number(raw);
 
     if (!Number.isFinite(value)) {
-      return alert("Enter a valid number");
+      return alert("Enter a valid number.");
     }
+
+  // ===================================================
+  // COLLECT TEXT ANSWER
+  // ===================================================
+
   } else if (q.type === "text") {
-    value = document.getElementById("textInput").value.trim();
+    value =
+      document.getElementById("textInput").value.trim();
 
     if (!value) {
-      return alert("Enter a response");
+      return alert("Enter a response.");
     }
+
+  // ===================================================
+  // COLLECT BOOLEAN OR SELECT ANSWER
+  // ===================================================
+
   } else {
-    const raw = document.getElementById("selectInput").value;
+    const raw =
+      document.getElementById("selectInput").value;
 
     if (raw === "") {
-      return alert("Select an option");
+      return alert("Select an option.");
     }
 
     value = Number(raw);
+
+    if (!Number.isFinite(value)) {
+      return alert("Select a valid option.");
+    }
   }
 
   // ===================================================
-  // FATIGUE QUESTION VALIDATION
+  // NUMERIC QUESTION VALIDATION
   // ===================================================
 
   const fatigueKey = getFatigueKey(q);
 
-  if (fatigueKey) {
+  if (q.type === "numeric") {
     if (!Number.isFinite(value) || value < 0) {
       return alert(
         "Enter a valid number of zero or greater."
@@ -436,7 +449,13 @@ function nextQuestion() {
     ) {
       return alert("Enter a whole number.");
     }
+  }
 
+  // ===================================================
+  // FATIGUE WORKLOAD VALIDATION
+  // ===================================================
+
+  if (fatigueKey) {
     if (
       (
         fatigueKey === "transports" ||
@@ -450,88 +469,25 @@ function nextQuestion() {
     }
   }
 
+  // ===================================================
   // STORE FOR CONDITIONAL LOGIC
+  // ===================================================
+
   answerMap[q.id] = value;
 
   // ===================================================
-  // ALERT TRACKING
+  // STORE ANSWER IN MEMORY
   // ===================================================
+  // Send original values to the server.
+  // The server calculates all weighted scores.
+  //
+  // Numeric answers remain numbers.
+  // Text answers remain strings.
+  // Multiselect answers remain arrays.
 
-  if (q.alert_trigger) {
-    if (Array.isArray(value)) {
-      if (value.includes(1)) {
-        alertTriggered = true;
-      }
-    } else if (Number(value) === 1) {
-      alertTriggered = true;
-    }
-  }
-
-  // ===================================================
-  // STANDARD QUESTION SCORING
-  // ===================================================
-
-  let score = 0;
-
-  // Fatigue questions are scored together
-  // at the end of the assessment.
-
-  if (
-    !fatigueKey &&
-    q.scoring &&
-    q.type !== "text"
-  ) {
-    try {
-      const rules =
-        typeof q.scoring === "string"
-          ? JSON.parse(q.scoring)
-          : q.scoring;
-
-      if (q.type === "multiselect") {
-        for (const selected of value) {
-          const rule = (rules || []).find(
-            r =>
-              r.value !== undefined &&
-              Number(r.value) === selected
-          );
-
-          if (rule) {
-            score += Number(rule.score) || 0;
-          }
-        }
-      } else {
-        for (const rule of rules || []) {
-          if (
-            rule.min !== undefined &&
-            rule.max !== undefined &&
-            value >= Number(rule.min) &&
-            value <= Number(rule.max)
-          ) {
-            score = Number(rule.score) || 0;
-          }
-
-          if (
-            rule.value !== undefined &&
-            value === Number(rule.value)
-          ) {
-            score = Number(rule.score) || 0;
-          }
-        }
-      }
-    } catch (error) {
-      console.error("Scoring error:", error);
-    }
-  }
-
-  totalScore += score;
-
-  // SAVE INDIVIDUAL ANSWER IN MEMORY
   answers.push({
     question_id: q.id,
-    value: Array.isArray(value)
-      ? JSON.stringify(value)
-      : String(value),
-    weighted_score: score
+    value: value
   });
 
   current++;
@@ -539,153 +495,256 @@ function nextQuestion() {
 }
 
 // =====================================================
-// RISK LEVEL
+// SUBMISSION DISPLAY
 // =====================================================
 
-function getColor(score) {
-  if (score < 4) return "GREEN";
-  if (score < 7) return "YELLOW";
-  if (score < 10) return "ORANGE";
-  return "RED";
-}
-
-// =====================================================
-// FINISH ASSESSMENT
-// =====================================================
-
-async function finishAssessment() {
-  if (assessmentFinishing) {
-    return;
-  }
-
-  assessmentFinishing = true;
-
-  // CALCULATE FATIGUE SCORE
-  const fatigue = calculateFatigueScore();
-
-  totalScore += fatigue.fatiguePoints;
-
-  // Store combined fatigue score under Q1.
-  // Q2-Q4 retain zero weighted_score because
-  // the four questions form one scoring block.
-
-  const callsQuestion = getFatigueQuestion("calls");
-
-  if (callsQuestion) {
-    const callsAnswer = answers.find(
-      a => a.question_id === callsQuestion.id
-    );
-
-    if (callsAnswer) {
-      callsAnswer.weighted_score = fatigue.fatiguePoints;
-    }
-  }
-
-  // CIRCADIAN ADJUSTMENT
-  const circadianScore = getCircadianScore();
-
-  totalScore += circadianScore;
-  totalScore = Number(totalScore.toFixed(2));
-
-  console.log("Fatigue units:", fatigue.fatigueUnits);
-  console.log("Fatigue points:", fatigue.fatiguePoints);
-  console.log("Circadian points:", circadianScore);
-  console.log("Final assessment score:", totalScore);
-
-  const color = getColor(totalScore);
-
-  // DISPLAY RESULT
+function showSubmissionStatus(message) {
   document.getElementById("landing").style.display = "none";
   document.getElementById("assessment").style.display = "none";
   document.getElementById("result").style.display = "flex";
 
   document.getElementById("resultColor").innerText =
-    "Risk Level: " + color;
+    message;
 
   window.scrollTo(0, 0);
+}
+
+// =====================================================
+// VALIDATE SERVER RESPONSE
+// =====================================================
+
+function validSubmissionResponse(data) {
+  if (!data || typeof data !== "object") {
+    return false;
+  }
+
+  if (data.saved !== true) {
+    return false;
+  }
+
+  if (
+    typeof data.assessment_id !== "string" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      .test(data.assessment_id)
+  ) {
+    return false;
+  }
+
+  if (
+    data.total_score === null ||
+    data.total_score === undefined ||
+    data.total_score === "" ||
+    !Number.isFinite(Number(data.total_score))
+  ) {
+    return false;
+  }
+
+  if (
+    !["GREEN", "YELLOW", "ORANGE", "RED"]
+      .includes(data.risk_color)
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+// =====================================================
+// FINISH ASSESSMENT
+// =====================================================
+// All scoring, assessment storage, global data storage,
+// and email notification processing occur on the server.
+
+async function finishAssessment() {
+  if (
+    assessmentFinishing ||
+    assessmentSaved ||
+    submissionUnconfirmed
+  ) {
+    return;
+  }
+
+  assessmentFinishing = true;
+
+  showSubmissionStatus(
+    "Submitting assessment. Please wait..."
+  );
 
   // ===================================================
-  // SAVE TO SUPABASE
+  // SUBMIT TO SERVER API
   // ===================================================
+
+  let result;
 
   try {
-    const { data, error } = await supabaseClient
-      .from("assessments")
-      .insert([{
-        total_score: totalScore,
-        risk_color: color
-      }])
-      .select();
-
-    if (error) {
-      throw error;
-    }
-
-    if (!data || !data.length) {
-      throw new Error("No assessment ID returned");
-    }
-
-    const assessmentId = data[0].id;
-
-    for (const answer of answers) {
-      const { error: answerError } = await supabaseClient
-        .from("answers")
-        .insert([{
-          assessment_id: assessmentId,
-          question_id: answer.question_id,
-          value: answer.value,
-          weighted_score: answer.weighted_score
-        }]);
-
-      if (answerError) {
-        throw answerError;
+    const response = await fetch(
+      "/api/submit-assessment",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        cache: "no-store",
+        body: JSON.stringify({
+          answers: answers.map(answer => ({
+            question_id: answer.question_id,
+            value: answer.value
+          }))
+        })
       }
+    );
+
+    // =================================================
+    // HANDLE CONFIRMED VALIDATION REJECTION
+    // =================================================
+
+    if (response.status === 400) {
+      showSubmissionStatus(
+        "Assessment could not be submitted."
+      );
+
+      alert(
+        "The assessment was rejected during validation. " +
+        "Please restart the assessment and check your answers."
+      );
+
+      return;
     }
 
-    console.log(
-      "Assessment and answers saved successfully"
-    );
+    // =================================================
+    // HANDLE OTHER SERVER ERRORS
+    // =================================================
+
+    if (!response.ok) {
+      throw new Error(
+        "Assessment confirmation unavailable"
+      );
+    }
+
+    result = await response.json();
+
+    // =================================================
+    // VALIDATE SAVE CONFIRMATION
+    // =================================================
+
+    if (!validSubmissionResponse(result)) {
+      throw new Error(
+        "Invalid assessment confirmation"
+      );
+    }
+
   } catch (error) {
-    console.error("Assessment save failed:", error);
+    // The assessment may have been saved even if
+    // the browser did not receive confirmation.
+    // Do not automatically submit again.
+
+    submissionUnconfirmed = true;
+
+    console.error(
+      "Assessment submission could not be confirmed"
+    );
+
+    showSubmissionStatus(
+      "Assessment submission could not be confirmed."
+    );
 
     alert(
-      "Your risk level was calculated, but the assessment " +
-      "could not be fully saved. Please notify your supervisor."
+      "The server did not confirm your assessment. " +
+      "It may already have been saved. " +
+      "Please notify your supervisor before submitting again."
     );
+
+    return;
+
+  } finally {
+    assessmentFinishing = false;
   }
 
   // ===================================================
-  // EMAIL ALERTS
+  // CONFIRM SUCCESSFUL ASSESSMENT
   // ===================================================
 
-  if (alertTriggered || totalScore >= 10) {
-    fetch("/api/send-alert", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        answers,
-        totalScore,
-        risk: color,
-        timestamp: new Date().toLocaleString()
-      })
-    })
-      .then(async response => {
-        const responseText = await response.text();
+  assessmentSaved = true;
 
-        if (!response.ok) {
-          console.error(
-            "ALERT FAILED:",
-            responseText
-          );
-        } else {
-          console.log("ALERT SUCCESS");
-        }
-      })
-      .catch(error => {
-        console.error("ALERT FAILED:", error);
-      });
+  // Server-calculated score and risk are authoritative.
+
+  totalScore = Number(result.total_score);
+
+  const color = result.risk_color;
+
+  console.log(
+    "Assessment saved successfully"
+  );
+
+  console.log(
+    "Assessment ID:",
+    result.assessment_id
+  );
+
+  console.log(
+    "Final assessment score:",
+    totalScore
+  );
+
+  console.log(
+    "Risk classification:",
+    color
+  );
+
+  console.log(
+    "Alert status:",
+    result.alert_status
+  );
+
+  // Remove submitted answers from browser memory.
+
+  answers = [];
+  answerMap = {};
+
+  // Clear potentially identifying text input.
+
+  document.getElementById("textInput").value = "";
+
+  // ===================================================
+  // DISPLAY CONFIRMED RESULT
+  // ===================================================
+
+  showSubmissionStatus(
+    "Risk Level: " + color
+  );
+
+  // ===================================================
+  // NOTIFICATION STATUS
+  // ===================================================
+  // Emails are sent exclusively by the server.
+  // The browser must never attempt to send them again.
+  //
+  // sent:
+  // All emails accepted by Resend.
+  //
+  // partial:
+  // Some emails accepted, others failed.
+  //
+  // failed:
+  // Notification processing failed.
+  //
+  // not_required:
+  // No notification was triggered.
+
+  if (
+    result.alert_status !== "sent" &&
+    result.alert_status !== "not_required"
+  ) {
+    console.warn(
+      "Assessment saved, but alert processing " +
+      "was not fully successful."
+    );
+
+    alert(
+      "Your assessment was saved successfully. " +
+      "However, one or more notifications could not " +
+      "be confirmed. Please notify your supervisor."
+    );
   }
 }
 
@@ -694,6 +753,44 @@ async function finishAssessment() {
 // =====================================================
 
 function restartAssessment() {
+  // Prevent restarting during an active submission.
+
+  if (
+    assessmentFinishing ||
+    assessmentLoading
+  ) {
+    return;
+  }
+
+  // Prevent accidental duplicate assessments when
+  // the previous submission could not be confirmed.
+
+  if (submissionUnconfirmed) {
+    alert(
+      "Your previous submission could not be confirmed. " +
+      "Please notify your supervisor before starting " +
+      "another assessment."
+    );
+
+    return;
+  }
+
+  current = 0;
+  questions = [];
+  answers = [];
+  answerMap = {};
+  totalScore = 0;
+  assessmentSaved = false;
+  assessmentFinishing = false;
+
+  document.getElementById("numericInput").value = "";
+  document.getElementById("selectInput").value = "";
+  document.getElementById("textInput").value = "";
+
+  document
+    .getElementById("multiSelectInput")
+    .replaceChildren();
+
   document.getElementById("result").style.display = "none";
   document.getElementById("assessment").style.display = "none";
   document.getElementById("landing").style.display = "flex";
