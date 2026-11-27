@@ -3,6 +3,7 @@
 <html lang="en">
 
 <head>
+
   <meta charset="UTF-8">
 
   <meta
@@ -17,8 +18,9 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
 
   <style>
+
     /* ==========================================
-       ADMIN PANEL LAYOUT
+       ADMIN PANEL
        ========================================== */
 
     #adminPanel {
@@ -35,6 +37,12 @@
 
     #assessmentList {
       width: 100%;
+    }
+
+    #adminLoginStatus {
+      color: #b91c1c;
+      font-size: 14px;
+      margin-top: 15px;
     }
 
     .admin-toolbar {
@@ -140,7 +148,7 @@
     }
 
     /* ==========================================
-       EXPANDED ASSESSMENT DETAILS
+       EXPANDED DETAILS
        ========================================== */
 
     .admin-assessment-details {
@@ -318,6 +326,151 @@
 
     .admin-category-summary {
       margin-top: 24px;
+    }
+
+    /* ==========================================
+       ADMINISTRATIVE COMMENTS
+       ========================================== */
+
+    .admin-comment-panel {
+      background: #fafbfc;
+      border-top: 1px solid #e2e8f0;
+      padding: 16px;
+      text-align: left;
+    }
+
+    .admin-comment-heading {
+      color: #173b62;
+      font-weight: 700;
+      font-size: 14px;
+      margin-bottom: 9px;
+    }
+
+    .admin-comment-display {
+      color: #334155;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-left: 3px solid #173b62;
+      border-radius: 5px;
+      padding: 12px;
+      font-size: 14px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .admin-comment-empty {
+      color: #64748b;
+      font-size: 13px;
+      font-style: italic;
+      background: transparent;
+      border: none;
+      padding: 2px 0 8px;
+    }
+
+    .admin-comment-metadata {
+      color: #64748b;
+      font-size: 11px;
+      line-height: 1.5;
+      margin-top: 7px;
+      margin-bottom: 9px;
+    }
+
+    .admin-comment-button {
+      background: #173b62;
+      color: #ffffff;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 13px;
+      padding: 10px 16px;
+      cursor: pointer;
+      width: auto;
+      margin: 0;
+    }
+
+    .admin-comment-button:hover {
+      background: #225b9a;
+    }
+
+    .admin-comment-secondary {
+      background: #ffffff;
+      color: #173b62;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 13px;
+      padding: 10px 16px;
+      cursor: pointer;
+      width: auto;
+      margin: 0;
+    }
+
+    .admin-comment-button:disabled,
+    .admin-comment-secondary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .admin-comment-editor {
+      margin-top: 12px;
+    }
+
+    .admin-comment-notice {
+      background: #fff7ed;
+      border-left: 3px solid #c2410c;
+      color: #9a3412;
+      padding: 11px;
+      border-radius: 4px;
+      font-size: 12px;
+      line-height: 1.6;
+      margin-bottom: 12px;
+    }
+
+    .admin-comment-textarea {
+      display: block;
+      width: 100%;
+      max-width: none;
+      min-height: 120px;
+      box-sizing: border-box;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 12px;
+      color: #1e293b;
+      background: #ffffff;
+      font-family: inherit;
+      font-size: 14px;
+      line-height: 1.6;
+      resize: vertical;
+    }
+
+    .admin-comment-textarea:focus {
+      outline: 2px solid #225b9a;
+      outline-offset: 1px;
+    }
+
+    .admin-comment-counter {
+      text-align: right;
+      color: #64748b;
+      font-size: 11px;
+      margin: 5px 0 12px;
+    }
+
+    .admin-comment-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .admin-comment-status {
+      font-size: 13px;
+      color: #475569;
+      line-height: 1.5;
+      margin-top: 9px;
+    }
+
+    .admin-comment-status:empty {
+      display: none;
     }
 
     /* ==========================================
@@ -534,6 +687,14 @@
         font-size: 13px;
       }
 
+      .admin-comment-panel {
+        padding: 12px;
+      }
+
+      .admin-comment-textarea {
+        font-size: 16px;
+      }
+
       .reporting-card {
         padding: 16px;
       }
@@ -564,19 +725,22 @@
         width: 100%;
       }
     }
+
   </style>
+
 </head>
 
 <body>
 
   <!-- ==========================================
-       EXISTING ADMIN LOGIN
+       ADMIN LOGIN
        ========================================== -->
 
   <div
     id="login"
     style="text-align:center; margin-top:100px;"
   >
+
     <h2>Admin Access</h2>
 
     <input
@@ -585,13 +749,25 @@
       placeholder="Enter password"
       class="input-large"
       autocomplete="current-password"
+      onkeydown="if(event.key === 'Enter') login()"
     >
 
     <br><br>
 
-    <button onclick="login()">
+    <button
+      id="adminLoginButton"
+      type="button"
+      onclick="login()"
+    >
       Enter
     </button>
+
+    <div
+      id="adminLoginStatus"
+      role="status"
+      aria-live="polite"
+    ></div>
+
   </div>
 
   <!-- ==========================================
@@ -601,7 +777,7 @@
   <div id="adminPanel">
 
     <!-- ========================================
-         EXISTING ASSESSMENT LIST VIEW
+         ASSESSMENT LIST
          ======================================== -->
 
     <div id="assessmentView">
@@ -708,7 +884,7 @@
         </div>
 
         <!-- ====================================
-             CALENDAR MONTH SELECTION
+             CALENDAR MONTH
              ==================================== -->
 
         <div
@@ -860,8 +1036,8 @@
 
           <strong>Overnight Assessments:</strong>
           2200 through 0559. Assessments completed after
-          midnight are assigned to the preceding operational
-          night.
+          midnight are assigned to the preceding
+          operational night.
 
           <br><br>
 
@@ -874,7 +1050,8 @@
           <br><br>
 
           <strong>Time Zone:</strong>
-          Central Time, including daylight saving adjustments.
+          Central Time, including daylight saving
+          adjustments.
 
           <br><br>
 
@@ -885,9 +1062,9 @@
           <br><br>
 
           <strong>Privacy:</strong>
-          Reports contain aggregate statistics and exclude
-          provider names. Generated reports are intended
-          for confidential administrative use.
+          Statistical reports exclude provider names.
+          Generated reports are intended for confidential
+          administrative use.
 
         </div>
 
@@ -932,6 +1109,8 @@
   <script src="admin.js"></script>
   <script src="reporting.js"></script>
   <script src="report-pdf.js"></script>
+  <script src="admin-comments.js"></script>
 
 </body>
+
 </html>
