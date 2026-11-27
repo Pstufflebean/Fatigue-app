@@ -1,14 +1,29 @@
 
 // =====================================================
 // ATLAS EMERGENCY SYSTEMS
-// FATIGUE PDF REPORT GENERATOR
-// INCLUDING ADMINISTRATIVE COMMENTS
+// OPERATIONAL FATIGUE RISK REPORT
+// OPTIMIZED PDF GENERATION MODULE
 // =====================================================
 
 (function () {
   "use strict";
 
-  const COLORS = {
+  // ===================================================
+  // REPORT CONFIGURATION
+  // ===================================================
+
+  const CONFIG = Object.freeze({
+    company: "Atlas Emergency Systems",
+    agency: "Linn County Ambulance District",
+    agencyId: "LCAD",
+    timeZone: "America/Chicago",
+    margin: 16,
+    chartHeight: 38,
+    bodyFont: 10,
+    noteFont: 9
+  });
+
+  const COLORS = Object.freeze({
     navy: "#173b62",
     dark: "#152d45",
     text: "#334155",
@@ -23,7 +38,7 @@
     orange: "#ea580c",
     red: "#dc2626",
     unknown: "#94a3b8"
-  };
+  });
 
   const RISK_COLORS = {
     GREEN: COLORS.green,
@@ -40,6 +55,7 @@
   let pdfLibraryPromise = null;
 
   function loadPDFLibrary() {
+
     if (window.jspdf?.jsPDF) {
       return Promise.resolve(window.jspdf.jsPDF);
     }
@@ -50,6 +66,7 @@
 
     pdfLibraryPromise = new Promise(
       (resolve, reject) => {
+
         const script =
           document.createElement("script");
 
@@ -68,12 +85,15 @@
         };
 
         script.onerror = () => {
+          script.remove();
+
           reject(
             new Error("Unable to load PDF library.")
           );
         };
 
         document.head.appendChild(script);
+
       }
     ).catch(error => {
       pdfLibraryPromise = null;
@@ -88,21 +108,46 @@
   // ===================================================
 
   function number(value) {
-    return Number(value || 0)
-      .toLocaleString("en-US");
+
+    if (
+      value === null ||
+      value === undefined ||
+      value === "" ||
+      !Number.isFinite(Number(value))
+    ) {
+      return "N/A";
+    }
+
+    return Number(value).toLocaleString(
+      "en-US",
+      {
+        maximumFractionDigits: 2
+      }
+    );
   }
 
   function decimal(value) {
-    return Number(value || 0).toFixed(1);
+
+    if (
+      value === null ||
+      value === undefined ||
+      !Number.isFinite(Number(value))
+    ) {
+      return "N/A";
+    }
+
+    return Number(value).toFixed(1);
   }
 
-  function percentage(count, total) {
-    return total > 0
-      ? count / total * 100
-      : 0;
+  function percent(value) {
+    return value === null ||
+      value === undefined
+      ? "N/A"
+      : decimal(value) + "%";
   }
 
   function dateLabel(value) {
+
     const date = new Date(
       value + "T12:00:00Z"
     );
@@ -119,6 +164,7 @@
   }
 
   function monthLabel(value) {
+
     const date = new Date(
       value + "-01T12:00:00Z"
     );
@@ -134,6 +180,7 @@
   }
 
   function timestampLabel(value) {
+
     if (!value) {
       return "Not recorded";
     }
@@ -147,7 +194,7 @@
     return new Intl.DateTimeFormat(
       "en-US",
       {
-        timeZone: "America/Chicago",
+        timeZone: CONFIG.timeZone,
         year: "numeric",
         month: "short",
         day: "numeric",
@@ -159,23 +206,75 @@
   }
 
   function safeText(value) {
+
     return String(value ?? "")
       .replace(/[\u2018\u2019]/g, "'")
       .replace(/[\u201c\u201d]/g, '"')
       .replace(/[\u2013\u2014]/g, "-")
+      .replace(/\u2022/g, "-")
       .replace(/\u2265/g, ">=")
       .replace(/\u2264/g, "<=")
-      .replace(/\u2022/g, "-")
       .replace(/\u00a0/g, " ")
+      .replace(/\u2026/g, "...")
       .replace(/\r\n/g, "\n")
-      .replace(/\r/g, "\n");
+      .replace(/\r/g, "\n")
+      .replace(/\t/g, "    ");
   }
 
   // ===================================================
-  // RETRIEVE ADMINISTRATIVE COMMENTS
+  // ADMINISTRATOR SESSION VERIFICATION
+  // ===================================================
+
+  async function verifyAdminSession() {
+
+    const response = await fetch(
+      "/api/admin-comments",
+      {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          action: "session"
+        })
+      }
+    );
+
+    if (!response.ok) {
+
+      const error = new Error(
+        response.status === 401
+          ? "Administrator session expired."
+          : "Administrator session could not be verified."
+      );
+
+      error.status = response.status;
+
+      throw error;
+    }
+
+    const result = await response.json();
+
+    if (result.authenticated !== true) {
+
+      const error = new Error(
+        "Administrator authentication required."
+      );
+
+      error.status = 401;
+
+      throw error;
+    }
+  }
+
+  // ===================================================
+  // ADMINISTRATIVE REVIEW DATA
   // ===================================================
 
   async function buildAdministrativeReview(report) {
+
     if (
       typeof window.loadAdministrativeReportComments
         !== "function"
@@ -197,16 +296,11 @@
     const generatedTime =
       new Date(report.range.generatedAt).getTime();
 
-    // Use actual calendar completion dates.
-    // Operational-night crossover applies only
-    // to the daily participation chart.
-
     const redAssessments = records.filter(
       assessment => {
+
         const timestamp =
-          new Date(
-            assessment.created_at
-          ).getTime();
+          new Date(assessment.created_at).getTime();
 
         return (
           timestamp >= startTime &&
@@ -233,9 +327,6 @@
       );
     }
 
-    // Retrieve protected comments using the
-    // authenticated administrative API.
-
     const reviews =
       await window.loadAdministrativeReportComments(
         redAssessments
@@ -250,56 +341,221 @@
       );
     }
 
-    const documented = reviews.filter(
-      item =>
-        typeof item.comment === "string" &&
-        item.comment.trim().length > 0
+    const expectedIds = new Set(
+      redAssessments.map(item => item.id)
     );
 
-    documented.sort(
+    const returnedIds = new Set(
+      reviews.map(item => item.assessment_id)
+    );
+
+    if (
+      returnedIds.size !== expectedIds.size ||
+      reviews.some(
+        item => !expectedIds.has(item.assessment_id)
+      )
+    ) {
+      throw new Error(
+        "Administrative review records do not reconcile."
+      );
+    }
+
+    const recordsById = new Map(
+      redAssessments.map(
+        item => [item.id, item]
+      )
+    );
+
+    const normalizedReviews = reviews.map(
+      item => {
+
+        const assessment =
+          recordsById.get(item.assessment_id);
+
+        return {
+          ...item,
+
+          assessment_date:
+            assessment.created_at,
+
+          total_score:
+            assessment.total_score === null ||
+            assessment.total_score === undefined ||
+            assessment.total_score === ""
+              ? null
+              : Number(assessment.total_score)
+        };
+      }
+    );
+
+    normalizedReviews.sort(
       (a, b) =>
         new Date(b.assessment_date).getTime() -
-        new Date(a.assessment_date).getTime()
+        new Date(a.assessment_date).getTime() ||
+        String(a.assessment_id).localeCompare(
+          String(b.assessment_id)
+        )
     );
+
+    const documented =
+      normalizedReviews.filter(
+        item =>
+          typeof item.comment === "string" &&
+          item.comment.trim().length > 0
+      );
+
+    const undocumented =
+      normalizedReviews.filter(
+        item =>
+          typeof item.comment !== "string" ||
+          item.comment.trim().length === 0
+      );
 
     return {
       totalRed: redAssessments.length,
 
       withComments: documented.length,
 
-      withoutComments:
-        redAssessments.length -
-        documented.length,
+      withoutComments: undocumented.length,
 
       documentationRate:
         redAssessments.length > 0
-          ? percentage(
-              documented.length,
-              redAssessments.length
-            )
+
+          ? documented.length /
+            redAssessments.length * 100
+
           : null,
 
-      comments: documented
+      comments: documented,
+
+      undocumented
     };
   }
 
   // ===================================================
-  // GENERATE PDF
+  // ENHANCED PARTICIPATION ANALYSIS
+  // ===================================================
+  // Preserves the existing reporting counts.
+  // Adds completion status for morning windows.
+
+  function enhanceParticipation(report) {
+
+    const generatedTime =
+      new Date(
+        report.range.generatedAt
+      ).getTime();
+
+    const daily =
+      report.participation.daily.map(
+        day => {
+
+          const morningEnd =
+            new Date(
+              reportLocalToUTC(day.date, 10)
+            ).getTime();
+
+          const morningStart =
+            new Date(
+              reportLocalToUTC(day.date, 7)
+            ).getTime();
+
+          const overnightStart =
+            new Date(
+              reportLocalToUTC(day.date, 22)
+            ).getTime();
+
+          return {
+            ...day,
+
+            morningComplete:
+              morningEnd <= generatedTime,
+
+            morningStarted:
+              morningStart <= generatedTime,
+
+            overnightStarted:
+              overnightStart <= generatedTime
+          };
+        }
+      );
+
+    return {
+      ...report.participation,
+
+      daily,
+
+      zeroMorningDays: daily.filter(
+        day =>
+          day.morningComplete &&
+          day.morning === 0
+      ).length,
+
+      incompleteMorningDays: daily.filter(
+        day => !day.morningComplete
+      ).length
+    };
+  }
+
+  // ===================================================
+  // COMMON CHART SCALE
   // ===================================================
 
-  async function downloadPDF(report) {
-    if (
-      !report ||
-      !report.summary ||
-      !report.range ||
-      !report.administrativeReview
-    ) {
-      throw new Error(
-        "Complete report statistics are required."
+  function getChartScale(days) {
+
+    let maximum = 0;
+
+    for (const day of days) {
+
+      maximum = Math.max(
+        maximum,
+        Number(day.morning) || 0,
+        Number(day.overnight) || 0
       );
     }
 
-    const jsPDF = await loadPDFLibrary();
+    const targetStep =
+      Math.max(1, maximum / 5);
+
+    const magnitude = Math.pow(
+      10,
+      Math.floor(Math.log10(targetStep))
+    );
+
+    const steps = [
+      1,
+      2,
+      5,
+      10
+    ].map(
+      value => value * magnitude
+    );
+
+    const step = Math.max(
+      1,
+      steps.find(
+        value => value >= targetStep
+      ) || targetStep
+    );
+
+    const axisMaximum = Math.max(
+      step,
+      Math.ceil(maximum / step) * step
+    );
+
+    return {
+      step,
+      maximum: axisMaximum
+    };
+  }
+
+  // ===================================================
+  // PDF GENERATION
+  // ===================================================
+
+  async function downloadPDF(report) {
+
+    const jsPDF =
+      await loadPDFLibrary();
 
     const doc = new jsPDF({
       orientation: "portrait",
@@ -314,7 +570,7 @@
     const pageHeight =
       doc.internal.pageSize.getHeight();
 
-    const margin = 16;
+    const margin = CONFIG.margin;
 
     const contentWidth =
       pageWidth - margin * 2;
@@ -322,196 +578,84 @@
     const bottom =
       pageHeight - 21;
 
-    const cardGap = 4;
-
-    const cardWidth =
-      (contentWidth - cardGap) / 2;
-
-    const rightCard =
-      margin + cardWidth + cardGap;
-
     let y = 18;
+
+    const review =
+      report.administrativeReview;
+
+    const participation =
+      report.participation;
 
     doc.setProperties({
       title: "Operational Fatigue Risk Report",
       subject: "LCAD Fatigue Risk Analysis",
-      author: "Atlas Emergency Systems",
-      creator: "Atlas Emergency Systems"
+      author: CONFIG.company,
+      creator: CONFIG.company
     });
 
     // =================================================
-    // DOCUMENT LAYOUT HELPERS
+    // FONT AND PAGE HELPERS
     // =================================================
 
     function font(
-      size = 10,
+      size = CONFIG.bodyFont,
       color = COLORS.text,
       weight = "normal"
     ) {
+
       doc.setFont("helvetica", weight);
       doc.setFontSize(size);
       doc.setTextColor(color);
     }
 
     function newPage() {
+
       doc.addPage();
 
       font(9, COLORS.navy, "bold");
 
       doc.text(
-        "ATLAS EMERGENCY SYSTEMS",
+        CONFIG.company.toUpperCase(),
         margin,
-        13
+        12
       );
 
       font(8, COLORS.muted);
 
       doc.text(
-        "LCAD | Operational Fatigue Risk Report",
+        CONFIG.agencyId +
+        " | Operational Fatigue Risk Report",
         pageWidth - margin,
-        13,
-        { align: "right" }
+        12,
+        {
+          align: "right"
+        }
       );
 
       doc.setDrawColor(COLORS.border);
+      doc.setLineWidth(0.2);
 
       doc.line(
         margin,
-        17,
+        16,
         pageWidth - margin,
-        17
+        16
       );
 
-      y = 24;
+      y = 23;
     }
 
     function ensureSpace(height) {
+
       if (y + height > bottom) {
         newPage();
       }
     }
 
-    function paragraph(
-      text,
-      size = 10,
-      color = COLORS.text
-    ) {
-      font(size, color);
-
-      const lines = doc.splitTextToSize(
-        safeText(text),
-        contentWidth
-      );
-
-      const lineHeight = size * 0.43;
-
-      for (const line of lines) {
-        ensureSpace(lineHeight + 2);
-
-        font(size, color);
-
-        doc.text(line, margin, y);
-
-        y += lineHeight;
-      }
-
-      y += 3;
-    }
-
-    function section(title) {
-      font(13, COLORS.navy, "bold");
-
-      const lines = doc.splitTextToSize(
-        safeText(title),
-        contentWidth
-      );
-
-      ensureSpace(
-        lines.length * 6 + 15
-      );
-
-      y += 3;
-
-      font(13, COLORS.navy, "bold");
-
-      for (const line of lines) {
-        doc.text(line, margin, y);
-        y += 6;
-      }
+    function horizontalRule() {
 
       doc.setDrawColor(COLORS.border);
-
-      doc.line(
-        margin,
-        y - 2,
-        pageWidth - margin,
-        y - 2
-      );
-
-      y += 6;
-    }
-
-    function smallHeading(title) {
-      font(10, COLORS.navy, "bold");
-
-      const lines = doc.splitTextToSize(
-        safeText(title),
-        contentWidth
-      );
-
-      ensureSpace(
-        lines.length * 5 + 8
-      );
-
-      font(10, COLORS.navy, "bold");
-
-      for (const line of lines) {
-        doc.text(line, margin, y);
-        y += 5;
-      }
-
-      y += 1;
-    }
-
-    function tableRow(label, value) {
-      font(9, COLORS.text);
-
-      const lines = doc.splitTextToSize(
-        safeText(label),
-        contentWidth - 38
-      );
-
-      const height =
-        Math.max(9, lines.length * 4 + 5);
-
-      ensureSpace(height);
-
-      font(9, COLORS.text);
-
-      for (
-        let index = 0;
-        index < lines.length;
-        index++
-      ) {
-        doc.text(
-          lines[index],
-          margin,
-          y + index * 4
-        );
-      }
-
-      font(9, COLORS.navy, "bold");
-
-      doc.text(
-        safeText(value),
-        pageWidth - margin,
-        y,
-        { align: "right" }
-      );
-
-      y += height - 5;
-
-      doc.setDrawColor(COLORS.border);
+      doc.setLineWidth(0.2);
 
       doc.line(
         margin,
@@ -519,64 +663,276 @@
         pageWidth - margin,
         y
       );
+    }
 
-      y += 5;
+    function paragraph(
+      text,
+      size = CONFIG.bodyFont,
+      color = COLORS.text,
+      spacing = 2.5
+    ) {
+
+      font(size, color);
+
+      const lines =
+        doc.splitTextToSize(
+          safeText(text),
+          contentWidth
+        );
+
+      const lineHeight =
+        size * 0.43;
+
+      for (const line of lines) {
+
+        ensureSpace(lineHeight + 2);
+
+        font(size, color);
+
+        doc.text(
+          line,
+          margin,
+          y
+        );
+
+        y += lineHeight;
+      }
+
+      y += spacing;
+    }
+
+    function note(text) {
+
+      paragraph(
+        text,
+        CONFIG.noteFont,
+        COLORS.muted,
+        3
+      );
+    }
+
+    // Reserve space for both a section heading
+    // and the beginning of its content.
+
+    function section(
+      title,
+      minimumContentHeight = 20
+    ) {
+
+      font(13, COLORS.navy, "bold");
+
+      const lines =
+        doc.splitTextToSize(
+          safeText(title),
+          contentWidth
+        );
+
+      ensureSpace(
+        lines.length * 5.5 +
+        12 +
+        minimumContentHeight
+      );
+
+      y += 3;
+
+      font(13, COLORS.navy, "bold");
+
+      for (const line of lines) {
+
+        doc.text(
+          line,
+          margin,
+          y
+        );
+
+        y += 5.5;
+      }
+
+      horizontalRule();
+
+      y += 6;
+    }
+
+    function smallHeading(
+      title,
+      minimumContentHeight = 8
+    ) {
+
+      font(10, COLORS.navy, "bold");
+
+      const lines =
+        doc.splitTextToSize(
+          safeText(title),
+          contentWidth
+        );
+
+      ensureSpace(
+        lines.length * 4.5 +
+        minimumContentHeight +
+        2
+      );
+
+      font(10, COLORS.navy, "bold");
+
+      for (const line of lines) {
+
+        doc.text(line, margin, y);
+
+        y += 4.5;
+      }
+
+      y += 1;
     }
 
     // =================================================
-    // KPI CARDS
+    // COMPACT TABLE ROWS
     // =================================================
 
-    function metricCard(
-      x,
-      top,
-      width,
+    function tableRow(
       label,
       value,
-      subtitle,
-      color
+      options = {}
     ) {
-      doc.setFillColor(COLORS.light);
 
-      doc.roundedRect(
-        x,
-        top,
-        width,
-        26,
-        2,
-        2,
-        "F"
-      );
+      font(9, COLORS.text);
 
-      font(9, COLORS.muted);
+      const valueWidth =
+        options.valueWidth || 35;
 
-      doc.text(
-        safeText(label),
-        x + 4,
-        top + 6
+      const lines =
+        doc.splitTextToSize(
+          safeText(label),
+          contentWidth -
+          valueWidth -
+          5
+        );
+
+      const height =
+        Math.max(
+          7,
+          lines.length * 4 + 3
+        );
+
+      ensureSpace(height);
+
+      font(9, COLORS.text);
+
+      lines.forEach(
+        (line, index) => {
+
+          doc.text(
+            line,
+            margin,
+            y + index * 4
+          );
+        }
       );
 
       font(
-        22,
-        color || COLORS.navy,
+        9,
+        options.color || COLORS.navy,
         "bold"
       );
 
       doc.text(
         safeText(value),
-        x + 4,
-        top + 16
+        pageWidth - margin,
+        y,
+        {
+          align: "right"
+        }
       );
 
-      if (subtitle) {
-        font(8, COLORS.muted);
+      y += height - 3;
 
-        doc.text(
-          safeText(subtitle),
-          x + 4,
-          top + 22
-        );
-      }
+      horizontalRule();
+
+      y += 3;
+    }
+
+    // =================================================
+    // COMPACT KPI CARD ROW
+    // ===================================================
+
+    function metricRow(metrics) {
+
+      const gap = 3;
+
+      const width =
+        (
+          contentWidth -
+          gap * (metrics.length - 1)
+        ) / metrics.length;
+
+      const cardHeight = 27;
+
+      ensureSpace(cardHeight + 4);
+
+      metrics.forEach(
+        (metric, index) => {
+
+          const x =
+            margin +
+            index * (width + gap);
+
+          doc.setFillColor(COLORS.light);
+
+          doc.roundedRect(
+            x,
+            y,
+            width,
+            cardHeight,
+            1.5,
+            1.5,
+            "F"
+          );
+
+          font(8.5, COLORS.muted);
+
+          const labels =
+            doc.splitTextToSize(
+              safeText(metric.label),
+              width - 7
+            );
+
+          labels.forEach(
+            (label, labelIndex) => {
+
+              doc.text(
+                label,
+                x + 3.5,
+                y + 5 +
+                labelIndex * 3.5
+              );
+            }
+          );
+
+          font(
+            19,
+            metric.color || COLORS.navy,
+            "bold"
+          );
+
+          doc.text(
+            safeText(metric.value),
+            x + 3.5,
+            y + 18
+          );
+
+          if (metric.subtitle) {
+
+            font(7.5, COLORS.muted);
+
+            doc.text(
+              safeText(metric.subtitle),
+              x + 3.5,
+              y + 23.5
+            );
+          }
+        }
+      );
+
+      y += cardHeight + 4;
     }
 
     // =================================================
@@ -586,10 +942,11 @@
     function horizontalBar(
       label,
       value,
-      percent,
+      percentageValue,
       color
     ) {
-      ensureSpace(16);
+
+      ensureSpace(13);
 
       font(9, COLORS.text);
 
@@ -605,10 +962,12 @@
         safeText(value),
         pageWidth - margin,
         y,
-        { align: "right" }
+        {
+          align: "right"
+        }
       );
 
-      y += 3;
+      y += 2.5;
 
       doc.setFillColor(COLORS.light);
 
@@ -616,9 +975,9 @@
         margin,
         y,
         contentWidth,
-        4.5,
-        1,
-        1,
+        4,
+        0.8,
+        0.8,
         "F"
       );
 
@@ -626,22 +985,26 @@
         contentWidth *
         Math.min(
           100,
-          Math.max(0, percent)
+          Math.max(
+            0,
+            Number(percentageValue) || 0
+          )
         ) / 100;
 
       if (width > 0) {
+
         doc.setFillColor(color);
 
         doc.rect(
           margin,
           y,
           width,
-          4.5,
+          4,
           "F"
         );
       }
 
-      y += 11;
+      y += 9;
     }
 
     // =================================================
@@ -654,49 +1017,55 @@
       0,
       0,
       pageWidth,
-      5,
+      4,
       "F"
     );
 
     font(9, COLORS.navy, "bold");
 
     doc.text(
-      "ATLAS EMERGENCY SYSTEMS",
+      CONFIG.company.toUpperCase(),
       margin,
       y
     );
 
-    y += 11;
+    y += 10;
 
     font(21, COLORS.dark, "bold");
 
-    const titleLines = doc.splitTextToSize(
-      "Operational Fatigue Risk Report",
-      contentWidth
-    );
+    const titleLines =
+      doc.splitTextToSize(
+        "Operational Fatigue Risk Report",
+        contentWidth
+      );
 
-    for (const line of titleLines) {
-      doc.text(line, margin, y);
-      y += 8;
-    }
+    titleLines.forEach(
+      line => {
+
+        doc.text(line, margin, y);
+
+        y += 8;
+      }
+    );
 
     font(12, COLORS.text);
 
     doc.text(
-      report.agencyName,
+      report.agencyName || CONFIG.agency,
       margin,
       y
     );
 
-    y += 7;
+    y += 6;
 
     paragraph(
       "Reporting period: " +
       dateLabel(report.range.startDate) +
       " through " +
       dateLabel(report.range.endDate),
-      9,
-      COLORS.muted
+      10,
+      COLORS.muted,
+      1
     );
 
     paragraph(
@@ -704,75 +1073,85 @@
       timestampLabel(
         report.range.generatedAt
       ),
-      8,
-      COLORS.muted
+      9,
+      COLORS.muted,
+      3
     );
 
     // =================================================
     // SECTION 1
-    // EXECUTIVE SUMMARY
+    // EXECUTIVE SUMMARY AND KEY METRICS
     // =================================================
 
     section(
-      "01 - Executive Summary and Key Metrics"
+      "01 - Executive Summary and Key Metrics",
+      64
     );
 
-    ensureSpace(64);
+    metricRow([
+      {
+        label: "Total Assessments",
+        value: number(
+          report.summary.totalAssessments
+        )
+      },
+      {
+        label: "Average Fatigue Score",
+        value: decimal(
+          report.summary.averageScore
+        )
+      }
+    ]);
 
-    metricCard(
-      margin,
-      y,
-      cardWidth,
-      "Total Assessments",
-      number(report.summary.totalAssessments)
-    );
-
-    metricCard(
-      rightCard,
-      y,
-      cardWidth,
-      "Average Fatigue Score",
-      report.summary.averageScore === null
-        ? "N/A"
-        : decimal(report.summary.averageScore)
-    );
-
-    y += 30;
-
-    metricCard(
-      margin,
-      y,
-      cardWidth,
-      "High Risk",
-      number(report.summary.highRisk),
-      "Scores greater than 12",
-      COLORS.red
-    );
-
-    metricCard(
-      rightCard,
-      y,
-      cardWidth,
-      "Peer-Support Requests",
-      number(report.summary.peerSupportRequests)
-    );
-
-    y += 34;
+    metricRow([
+      {
+        label: "High Risk",
+        value: number(
+          report.summary.highRisk
+        ),
+        subtitle: "Scores greater than 12",
+        color: COLORS.red
+      },
+      {
+        label: "Peer-Support Requests",
+        value: number(
+          report.summary.peerSupportRequests
+        )
+      }
+    ]);
 
     const redCount =
-      report.administrativeReview.totalRed;
+      review.totalRed;
 
-    if (report.summary.totalAssessments > 0) {
+    const orangeCount =
+      report.riskDistribution.find(
+        item => item.risk === "ORANGE"
+      )?.count || 0;
+
+    const elevatedCount =
+      redCount + orangeCount;
+
+    const total =
+      report.summary.totalAssessments;
+
+    if (total > 0) {
+
+      const elevatedPercentage =
+        elevatedCount / total * 100;
+
       paragraph(
-        `${number(report.summary.totalAssessments)} ` +
-        "assessments were recorded during the " +
-        "selected reporting period. " +
-        `${number(redCount)} were classified as RED, ` +
-        `and ${number(report.summary.highRisk)} ` +
-        "exceeded the High Risk reporting " +
-        "threshold of 12."
+        `${number(total)} assessments were recorded ` +
+        "during the selected reporting period. " +
+        `${number(elevatedCount)} (` +
+        `${percent(elevatedPercentage)}) were ` +
+        "classified as ORANGE or RED. " +
+        `${number(redCount)} were RED, and ` +
+        `${number(report.summary.highRisk)} ` +
+        "exceeded the High Risk reporting threshold."
       );
+
     } else {
+
       paragraph(
         "No assessments were recorded during " +
         "the selected calendar reporting period."
@@ -785,12 +1164,14 @@
     // =================================================
 
     section(
-      "02 - Fatigue Risk Distribution"
+      "02 - Fatigue Risk Distribution",
+      48
     );
 
     for (
       const risk of report.riskDistribution
     ) {
+
       if (
         risk.risk === "UNKNOWN" &&
         risk.count === 0
@@ -802,25 +1183,27 @@
         risk.risk,
 
         number(risk.count) +
-          " (" +
-          decimal(risk.percentage) +
-          "%)",
+        " (" +
+        (
+          total > 0
+            ? percent(risk.percentage)
+            : "N/A"
+        ) +
+        ")",
 
         risk.percentage,
 
         RISK_COLORS[risk.risk] ||
-          COLORS.unknown
+        COLORS.unknown
       );
     }
 
-    paragraph(
+    note(
       "Risk classification: GREEN <4; " +
       "YELLOW 4 to <7; ORANGE 7 to <10; " +
-      "RED >=10. High Risk (>12) is a " +
-      "separate reporting measure and does " +
-      "not change alert thresholds.",
-      8,
-      COLORS.muted
+      "RED >=10. High Risk (>12) is a separate " +
+      "reporting measure and does not change " +
+      "existing alert thresholds."
     );
 
     // =================================================
@@ -828,54 +1211,54 @@
     // DAILY ASSESSMENT PARTICIPATION
     // =================================================
 
-    newPage();
-
     section(
-      "03 - Daily Assessment Participation"
+      "03 - Daily Assessment Participation",
+      35
     );
 
-    ensureSpace(34);
-
-    metricCard(
-      margin,
-      y,
-      cardWidth,
-      "Morning Assessments",
-      number(
-        report.participation.totalMorning
-      ),
-      "0700-0959",
-      COLORS.morning
-    );
-
-    metricCard(
-      rightCard,
-      y,
-      cardWidth,
-      "Overnight Assessments",
-      number(
-        report.participation.totalOvernight
-      ),
-      "2200-0559",
-      COLORS.overnight
-    );
-
-    y += 34;
+    metricRow([
+      {
+        label: "Morning Assessments",
+        value: number(
+          participation.totalMorning
+        ),
+        subtitle: "0700-0959",
+        color: COLORS.morning
+      },
+      {
+        label: "Overnight Assessments",
+        value: number(
+          participation.totalOvernight
+        ),
+        subtitle: "2200-0559",
+        color: COLORS.overnight
+      }
+    ]);
 
     paragraph(
       "Morning assessments are assigned to their " +
       "calendar date. Overnight assessments " +
       "completed after midnight are assigned to " +
-      "the preceding operational night. " +
-      "All times use Central Time."
+      "the preceding operational night."
     );
+
+    note(
+      "All times use Central Time. Monthly charts " +
+      "use a common vertical scale for direct " +
+      "comparison. Incomplete assessment windows " +
+      "are identified beneath each chart."
+    );
+
+    // =================================================
+    // GROUP DAILY DATA BY MONTH
+    // =================================================
 
     const months = new Map();
 
-    for (
-      const day of report.participation.daily
-    ) {
-      const key = day.date.slice(0, 7);
+    for (const day of participation.daily) {
+
+      const key =
+        day.date.slice(0, 7);
 
       if (!months.has(key)) {
         months.set(key, []);
@@ -884,178 +1267,16 @@
       months.get(key).push(day);
     }
 
+    const scale =
+      getChartScale(
+        participation.daily
+      );
+
     // =================================================
-    // MONTHLY PAIRED-COLUMN CHART
+    // OPTIMIZED DAILY PAIRED-COLUMN CHART
     // =================================================
 
     function dailyChart(month, days) {
-      ensureSpace(102);
-
-      smallHeading(monthLabel(month));
-
-      const chartX = margin + 10;
-      const chartY = y + 10;
-      const chartW = contentWidth - 13;
-      const chartH = 45;
-
-      const chartBottom =
-        chartY + chartH;
-
-      const maximum = Math.max(
-        1,
-        ...days.map(
-          day => Math.max(
-            day.morning,
-            day.overnight
-          )
-        )
-      );
-
-      const step = Math.max(
-        1,
-        Math.ceil(maximum / 6)
-      );
-
-      const axisMaximum =
-        Math.ceil(maximum / step) * step;
-
-      const groupWidth =
-        chartW / days.length;
-
-      const barWidth =
-        Math.min(groupWidth * 0.34, 5);
-
-      // Chart legend.
-
-      doc.setFillColor(COLORS.morning);
-
-      doc.rect(
-        margin, y, 3, 3, "F"
-      );
-
-      font(8, COLORS.text);
-
-      doc.text(
-        "Morning",
-        margin + 5,
-        y + 2.7
-      );
-
-      doc.setFillColor(COLORS.overnight);
-
-      doc.rect(
-        margin + 34, y, 3, 3, "F"
-      );
-
-      doc.text(
-        "Operational night",
-        margin + 39,
-        y + 2.7
-      );
-
-      // Horizontal grid lines.
-
-      for (
-        let tick = 0;
-        tick <= axisMaximum;
-        tick += step
-      ) {
-        const tickY =
-          chartBottom -
-          tick / axisMaximum * chartH;
-
-        doc.setDrawColor(COLORS.border);
-        doc.setLineWidth(0.15);
-
-        doc.line(
-          chartX,
-          tickY,
-          chartX + chartW,
-          tickY
-        );
-
-        font(7, COLORS.muted);
-
-        doc.text(
-          String(tick),
-          chartX - 2,
-          tickY + 1,
-          { align: "right" }
-        );
-      }
-
-      // Daily assessment columns.
-
-      days.forEach((day, index) => {
-        const center =
-          chartX +
-          groupWidth * (index + 0.5);
-
-        const morningHeight =
-          day.morning /
-          axisMaximum *
-          chartH;
-
-        const overnightHeight =
-          day.overnight /
-          axisMaximum *
-          chartH;
-
-        if (morningHeight > 0) {
-          doc.setFillColor(
-            COLORS.morning
-          );
-
-          doc.rect(
-            center - barWidth - 0.2,
-            chartBottom - morningHeight,
-            barWidth,
-            morningHeight,
-            "F"
-          );
-        }
-
-        if (overnightHeight > 0) {
-          doc.setFillColor(
-            COLORS.overnight
-          );
-
-          doc.rect(
-            center + 0.2,
-            chartBottom - overnightHeight,
-            barWidth,
-            overnightHeight,
-            "F"
-          );
-        }
-
-        font(6.5, COLORS.text);
-
-        doc.text(
-          String(
-            Number(day.date.slice(8, 10))
-          ) +
-          (
-            day.overnightComplete
-              ? ""
-              : "*"
-          ),
-          center,
-          chartBottom + 4,
-          { align: "center" }
-        );
-      });
-
-      font(8, COLORS.muted);
-
-      doc.text(
-        "Day of month",
-        chartX + chartW / 2,
-        chartBottom + 10,
-        { align: "center" }
-      );
-
-      y = chartBottom + 16;
 
       const morningTotal =
         days.reduce(
@@ -1071,56 +1292,424 @@
           0
         );
 
+      const incompleteMorning =
+        days.filter(
+          day => !day.morningComplete
+        );
+
+      const incompleteNight =
+        days.filter(
+          day => !day.overnightComplete
+        );
+
+      const allZero =
+        morningTotal === 0 &&
+        overnightTotal === 0;
+
+      // Keep empty partial-month periods compact.
+      // Show the dates explicitly rather than
+      // allocating a full empty chart.
+
+      if (
+        allZero &&
+        days.length <= 7
+      ) {
+
+        ensureSpace(35);
+
+        smallHeading(
+          monthLabel(month)
+        );
+
+        const firstDay =
+          Number(
+            days[0].date.slice(8, 10)
+          );
+
+        const lastDay =
+          Number(
+            days[days.length - 1]
+              .date.slice(8, 10)
+          );
+
+        tableRow(
+          "Days included: " +
+          firstDay +
+          (
+            firstDay === lastDay
+              ? ""
+              : "-" + lastDay
+          ),
+          "0 / 0"
+        );
+
+        note(
+          "No morning or overnight assessments " +
+          "were recorded during these dates." +
+          (
+            incompleteMorning.length ||
+            incompleteNight.length
+
+              ? " One or more assessment windows " +
+                "were not complete at generation."
+
+              : ""
+          )
+        );
+
+        return;
+      }
+
+      // Keep the chart and its legend together.
+      // Multiple charts can share the same page.
+
+      const chartSpace =
+        79 +
+        (
+          incompleteMorning.length
+            ? 6
+            : 0
+        ) +
+        (
+          incompleteNight.length
+            ? 6
+            : 0
+        );
+
+      ensureSpace(chartSpace);
+
+      smallHeading(
+        monthLabel(month)
+      );
+
+      const chartX =
+        margin + 12;
+
+      const chartY =
+        y + 9;
+
+      const chartW =
+        contentWidth - 15;
+
+      const chartH =
+        CONFIG.chartHeight;
+
+      const chartBottom =
+        chartY + chartH;
+
+      const groupWidth =
+        chartW / days.length;
+
+      const barWidth =
+        Math.min(
+          groupWidth * 0.33,
+          5
+        );
+
+      // ===============================================
+      // CHART LEGEND
+      // ===============================================
+
+      doc.setFillColor(
+        COLORS.morning
+      );
+
+      doc.rect(
+        margin,
+        y,
+        3,
+        3,
+        "F"
+      );
+
+      font(8.5, COLORS.text);
+
+      doc.text(
+        "Morning",
+        margin + 5,
+        y + 2.7
+      );
+
+      doc.setFillColor(
+        COLORS.overnight
+      );
+
+      doc.rect(
+        margin + 35,
+        y,
+        3,
+        3,
+        "F"
+      );
+
+      doc.text(
+        "Operational night",
+        margin + 40,
+        y + 2.7
+      );
+
+      // ===============================================
+      // VERTICAL SCALE
+      // ===============================================
+
+      for (
+        let tick = 0;
+        tick <= scale.maximum;
+        tick += scale.step
+      ) {
+
+        const tickY =
+          chartBottom -
+          tick / scale.maximum *
+          chartH;
+
+        doc.setDrawColor(
+          COLORS.border
+        );
+
+        doc.setLineWidth(0.15);
+
+        doc.line(
+          chartX,
+          tickY,
+          chartX + chartW,
+          tickY
+        );
+
+        font(8, COLORS.muted);
+
+        doc.text(
+          number(tick),
+          chartX - 2,
+          tickY + 1,
+          {
+            align: "right"
+          }
+        );
+      }
+
+      // ===============================================
+      // DAILY COLUMNS
+      // ===============================================
+
+      days.forEach(
+        (day, index) => {
+
+          const center =
+            chartX +
+            groupWidth *
+            (index + 0.5);
+
+          const morningHeight =
+            day.morning /
+            scale.maximum *
+            chartH;
+
+          const overnightHeight =
+            day.overnight /
+            scale.maximum *
+            chartH;
+
+          if (morningHeight > 0) {
+
+            doc.setFillColor(
+              COLORS.morning
+            );
+
+            doc.rect(
+              center - barWidth - 0.2,
+              chartBottom - morningHeight,
+              barWidth,
+              morningHeight,
+              "F"
+            );
+          }
+
+          if (overnightHeight > 0) {
+
+            doc.setFillColor(
+              COLORS.overnight
+            );
+
+            doc.rect(
+              center + 0.2,
+              chartBottom - overnightHeight,
+              barWidth,
+              overnightHeight,
+              "F"
+            );
+          }
+
+          let marker = "";
+
+          if (
+            !day.morningComplete ||
+            !day.overnightComplete
+          ) {
+            marker = "*";
+          }
+
+          font(7, COLORS.text);
+
+          doc.text(
+            String(
+              Number(
+                day.date.slice(8, 10)
+              )
+            ) + marker,
+
+            center,
+
+            chartBottom + 4,
+
+            {
+              align: "center"
+            }
+          );
+        }
+      );
+
+      font(8, COLORS.muted);
+
+      doc.text(
+        "Day of month",
+        chartX + chartW / 2,
+        chartBottom + 9,
+        {
+          align: "center"
+        }
+      );
+
+      y = chartBottom + 14;
+
       paragraph(
         "Morning: " +
         number(morningTotal) +
         " | Operational night: " +
         number(overnightTotal),
-        9
+        9,
+        COLORS.text,
+        1
       );
 
-      if (
-        days.some(
-          day => !day.overnightComplete
-        )
-      ) {
+      // ===============================================
+      // INCOMPLETE ASSESSMENT WINDOWS
+      // ===============================================
+
+      if (incompleteMorning.length > 0) {
+
+        const dates =
+          incompleteMorning.map(
+            day =>
+              Number(
+                day.date.slice(8, 10)
+              )
+          ).join(", ");
+
+        const notStarted =
+          incompleteMorning.every(
+            day => !day.morningStarted
+          );
+
         paragraph(
-          "* Operational night not yet complete.",
-          8,
-          COLORS.muted
+          "* Morning window " +
+          (
+            notStarted
+              ? "not yet started"
+              : "incomplete"
+          ) +
+          " on day(s): " +
+          dates + ".",
+          9,
+          COLORS.muted,
+          1
+        );
+      }
+
+      if (incompleteNight.length > 0) {
+
+        const dates =
+          incompleteNight.map(
+            day =>
+              Number(
+                day.date.slice(8, 10)
+              )
+          ).join(", ");
+
+        const notStarted =
+          incompleteNight.every(
+            day => !day.overnightStarted
+          );
+
+        paragraph(
+          "* Operational night " +
+          (
+            notStarted
+              ? "not yet started"
+              : "incomplete"
+          ) +
+          " on day(s): " +
+          dates + ".",
+          9,
+          COLORS.muted,
+          1
         );
       }
 
       y += 4;
     }
 
-    for (const [month, days] of months) {
+    // =================================================
+    // RENDER MONTHLY CHARTS
+    // =================================================
+
+    for (
+      const [month, days] of months
+    ) {
       dailyChart(month, days);
     }
 
+    smallHeading(
+      "Assessment Participation Summary",
+      28
+    );
+
     tableRow(
-      "Completed nights without assessments",
+      "Completed morning windows without assessments",
       number(
-        report.participation.zeroOvernightDays
+        participation.zeroMorningDays
+      )
+    );
+
+    tableRow(
+      "Completed operational nights without assessments",
+      number(
+        participation.zeroOvernightDays
+      )
+    );
+
+    tableRow(
+      "Incomplete morning windows",
+      number(
+        participation.incompleteMorningDays
       )
     );
 
     tableRow(
       "Incomplete operational nights",
       number(
-        report.participation.incompleteOvernightDays
+        participation.incompleteOvernightDays
       )
     );
 
-    paragraph(
-      "The participation chart includes " +
-      "next-day assessments belonging to the " +
-      "final operational night. Other report " +
-      "statistics use actual calendar completion " +
-      "dates. Consequently, these sections may " +
-      "use different record sets.",
-      8,
-      COLORS.muted
+    note(
+      "The participation analysis includes next-day " +
+      "assessments belonging to the final operational " +
+      "night. Other report statistics use actual " +
+      "calendar completion dates. Assessment counts " +
+      "do not independently establish participation " +
+      "or compliance rates without staffing and " +
+      "assessment requirement information."
     );
 
     // =================================================
@@ -1128,28 +1717,31 @@
     // CONTRIBUTING FATIGUE FACTORS
     // =================================================
 
-    newPage();
-
     section(
-      "04 - Contributing Fatigue Factors"
+      "04 - Contributing Fatigue Factors",
+      30
     );
 
     paragraph(
-      "Distribution of attributable fatigue " +
-      "scoring points across established " +
-      "assessment categories."
+      "Distribution of attributable fatigue scoring " +
+      "points across established assessment categories."
     );
 
     for (
       const factor of report.factors.categories
     ) {
+
       horizontalBar(
         factor.title,
 
         number(factor.points) +
-          " pts (" +
-          decimal(factor.percentage) +
-          "%)",
+        " pts (" +
+        (
+          report.factors.totalAttributedPoints > 0
+            ? percent(factor.percentage)
+            : "N/A"
+        ) +
+        ")",
 
         factor.percentage,
 
@@ -1164,15 +1756,13 @@
       )
     );
 
-    paragraph(
+    note(
       "Historical weighted scores are preserved. " +
-      "Circadian contributions are inferred from " +
-      "historical score differences when consistent " +
-      "with established scoring rules. These " +
-      "percentages describe scoring contributions, " +
-      "not proven causes of fatigue.",
-      8,
-      COLORS.muted
+      "Circadian contributions are inferred when " +
+      "score differences are consistent with " +
+      "established scoring rules. These percentages " +
+      "describe scoring contributions, not proven " +
+      "causes of fatigue."
     );
 
     // =================================================
@@ -1181,7 +1771,8 @@
     // =================================================
 
     section(
-      "05 - Provider Self-Assessment Trends"
+      "05 - Provider Self-Assessment Trends",
+      48
     );
 
     const selfColors = [
@@ -1195,18 +1786,23 @@
       const item of
       report.selfAssessment.distribution
     ) {
+
       horizontalBar(
         item.label,
 
         number(item.count) +
-          " (" +
-          decimal(item.percentage) +
-          "%)",
+        " (" +
+        (
+          report.selfAssessment.totalResponses > 0
+            ? percent(item.percentage)
+            : "N/A"
+        ) +
+        ")",
 
         item.percentage,
 
         selfColors[item.value] ||
-          COLORS.unknown
+        COLORS.unknown
       );
     }
 
@@ -1231,14 +1827,31 @@
       )
     );
 
-    paragraph(
-      "Response percentages are calculated using " +
-      "valid self-assessment responses. Differences " +
-      "between perceived readiness and calculated " +
-      "fatigue risk may identify opportunities " +
-      "for education and review.",
-      8,
-      COLORS.muted
+    // Show the percentage of "Good to go"
+    // submissions that were ORANGE or RED.
+
+    const goodToGoCount =
+      report.selfAssessment.distribution.find(
+        item => item.value === 0
+      )?.count || 0;
+
+    if (goodToGoCount > 0) {
+
+      const mismatchPercentage =
+        report.selfAssessment.goodToGoElevatedRisk /
+        goodToGoCount * 100;
+
+      tableRow(
+        "Good to go submissions classified ORANGE or RED",
+        percent(mismatchPercentage)
+      );
+    }
+
+    note(
+      "Response percentages use valid self-assessment " +
+      "responses. Differences between perceived " +
+      "readiness and calculated fatigue risk may " +
+      "identify opportunities for education and review."
     );
 
     // =================================================
@@ -1246,125 +1859,137 @@
     // ADMINISTRATIVE RECOMMENDATIONS
     // =================================================
 
-    newPage();
-
     section(
-      "06 - Administrative Recommendations"
+      "06 - Administrative Recommendations",
+      25
     );
 
-    for (
-      const recommendation of
-      report.recommendations
+    function recommendation(
+      title,
+      text
     ) {
-      ensureSpace(25);
+
+      font(
+        CONFIG.bodyFont,
+        COLORS.text
+      );
+
+      const lines =
+        doc.splitTextToSize(
+          safeText(text),
+          contentWidth
+        );
+
+      const needed =
+        lines.length * 4.3 + 14;
+
+      ensureSpace(
+        Math.min(needed, 60)
+      );
 
       smallHeading(
-        recommendation.title
+        title,
+        10
       );
 
-      paragraph(
-        recommendation.text
-      );
+      paragraph(text);
 
-      y += 3;
+      y += 1;
     }
 
-    // Add administrative documentation guidance.
+    for (
+      const item of report.recommendations
+    ) {
 
-    const review =
-      report.administrativeReview;
+      recommendation(
+        item.title,
+        item.text
+      );
+    }
+
+    if (
+      participation.zeroMorningDays > 0 &&
+      total > 0
+    ) {
+
+      recommendation(
+        "Morning assessment participation",
+
+        `${number(participation.zeroMorningDays)} ` +
+        "completed morning assessment windows " +
+        "recorded no assessments. Compare these " +
+        "dates with staffing, operational activity, " +
+        "and assessment requirements before " +
+        "determining whether compliance concerns exist."
+      );
+    }
 
     if (review.withoutComments > 0) {
-      smallHeading(
-        "RED assessment documentation"
-      );
 
-      paragraph(
+      recommendation(
+        "RED assessment documentation",
+
         `${number(review.withoutComments)} RED ` +
         "assessments do not currently contain an " +
-        "administrative comment. Consider reviewing " +
-        "these records and documenting applicable " +
-        "supervisory actions or fatigue mitigation " +
-        "measures."
+        "administrative comment. Review these records " +
+        "and document applicable supervisory actions " +
+        "or fatigue mitigation measures."
       );
     }
 
-    paragraph(
-      "These recommendations are generated using " +
-      "predefined analytical rules. They support " +
-      "administrative review and do not independently " +
-      "determine provider fitness for duty.",
-      8,
-      COLORS.muted
+    note(
+      "Recommendations are generated using predefined " +
+      "analytical rules. They support administrative " +
+      "review and do not independently determine " +
+      "provider fitness for duty."
     );
 
     // =================================================
     // SECTION 7
     // RED ASSESSMENT REVIEW
-    // ADMINISTRATIVE COMMENTS
     // =================================================
 
-    newPage();
-
     section(
-      "07 - RED Assessment Review and Administrative Comments"
+      "07 - RED Assessment Review and Administrative Comments",
+      64
     );
 
-    ensureSpace(64);
+    metricRow([
+      {
+        label: "Total RED Assessments",
+        value: number(review.totalRed),
+        color: COLORS.red
+      },
+      {
+        label: "With Administrative Comments",
+        value: number(review.withComments),
+        color: COLORS.green
+      }
+    ]);
 
-    metricCard(
-      margin,
-      y,
-      cardWidth,
-      "Total RED Assessments",
-      number(review.totalRed),
-      null,
-      COLORS.red
-    );
-
-    metricCard(
-      rightCard,
-      y,
-      cardWidth,
-      "With Administrative Comments",
-      number(review.withComments),
-      null,
-      COLORS.green
-    );
-
-    y += 30;
-
-    metricCard(
-      margin,
-      y,
-      cardWidth,
-      "Without Administrative Comments",
-      number(review.withoutComments)
-    );
-
-    metricCard(
-      rightCard,
-      y,
-      cardWidth,
-      "Documentation Rate",
-      review.documentationRate === null
-        ? "N/A"
-        : decimal(
-            review.documentationRate
-          ) + "%"
-    );
-
-    y += 34;
+    metricRow([
+      {
+        label: "Without Administrative Comments",
+        value: number(review.withoutComments)
+      },
+      {
+        label: "Documentation Rate",
+        value: percent(
+          review.documentationRate
+        )
+      }
+    ]);
 
     if (
       review.documentationRate !== null
     ) {
+
       horizontalBar(
         "Administrative documentation rate",
 
-        decimal(
+        percent(
           review.documentationRate
-        ) + "%",
+        ),
 
         review.documentationRate,
 
@@ -1372,35 +1997,31 @@
       );
     }
 
-    paragraph(
-      "Administrative documentation rates reflect " +
-      "the presence of saved comments. They do not " +
+    note(
+      "Documentation rates reflect the presence of " +
+      "saved administrative comments. They do not " +
       "independently establish whether all required " +
-      "fatigue mitigation measures were completed.",
-      8,
-      COLORS.muted
+      "fatigue mitigation measures were completed."
     );
 
-    paragraph(
+    note(
       "Comments are associated with the original " +
-      "assessment completion date. The report " +
-      "includes the latest saved version available " +
-      "when administrative comments are retrieved.",
-      8,
-      COLORS.muted
+      "assessment completion date. Reports include " +
+      "the latest saved comment version available " +
+      "when comments are retrieved."
     );
 
     if (review.totalRed === 0) {
-      paragraph(
-        "No RED assessments were recorded " +
-        "during the selected reporting period."
-      );
-    }
 
-    if (
-      review.totalRed > 0 &&
+      paragraph(
+        "No RED assessments were recorded during " +
+        "the selected reporting period."
+      );
+
+    } else if (
       review.withComments === 0
     ) {
+
       paragraph(
         "No administrative comments are currently " +
         "recorded for the RED assessments within " +
@@ -1409,41 +2030,36 @@
     }
 
     // =================================================
-    // ADMINISTRATIVE COMMENT RENDERING
+    // RENDER SAVED ADMINISTRATIVE COMMENTS
     // =================================================
-    // Long comments may continue across pages.
-    // Comments are rendered as plain text.
 
     function renderAdministrativeComment(
       item,
       index
     ) {
+
       const label =
         "RED Assessment " +
         String(index + 1);
 
       const score =
-        item.total_score === null ||
-        !Number.isFinite(
-          Number(item.total_score)
-        )
-          ? "N/A"
-          : number(item.total_score);
+        number(item.total_score);
 
       function commentHeader(
         continued = false
       ) {
-        ensureSpace(36);
 
-        doc.setFillColor(COLORS.light);
+        doc.setFillColor(
+          COLORS.light
+        );
 
         doc.roundedRect(
           margin,
           y,
           contentWidth,
-          16,
-          1.5,
-          1.5,
+          14,
+          1.2,
+          1.2,
           "F"
         );
 
@@ -1451,10 +2067,14 @@
 
         doc.text(
           label +
-            (continued
+          (
+            continued
               ? " (continued)"
-              : ""),
-          margin + 4,
+              : ""
+          ),
+
+          margin + 3,
+
           y + 5
         );
 
@@ -1462,26 +2082,78 @@
 
         doc.text(
           "RED | Score: " + score,
-          pageWidth - margin - 4,
+
+          pageWidth - margin - 3,
+
           y + 5,
-          { align: "right" }
+
+          {
+            align: "right"
+          }
         );
 
-        font(8, COLORS.muted);
+        font(9, COLORS.muted);
 
         doc.text(
           "Assessment: " +
           timestampLabel(
             item.assessment_date
           ),
-          margin + 4,
-          y + 11
+
+          margin + 3,
+
+          y + 10.5
         );
 
-        y += 22;
+        y += 19;
       }
 
-      ensureSpace(52);
+      font(
+        CONFIG.bodyFont,
+        COLORS.text
+      );
+
+      const lines =
+        doc.splitTextToSize(
+          safeText(item.comment),
+          contentWidth - 7
+        );
+
+      const lineHeight = 4.5;
+
+      const wasEdited =
+        item.comment_updated_at &&
+        item.comment_updated_at !==
+          item.comment_created_at;
+
+      const estimatedHeight =
+        38 +
+        lines.length * lineHeight +
+        (
+          wasEdited
+            ? 6
+            : 0
+        );
+
+      // Keep a complete comment together when
+      // it can fit on a single page.
+
+      const availablePageHeight =
+        bottom - 23;
+
+      if (
+        estimatedHeight <=
+        availablePageHeight
+      ) {
+
+        ensureSpace(
+          estimatedHeight
+        );
+
+      } else {
+
+        ensureSpace(42);
+      }
 
       commentHeader();
 
@@ -1493,30 +2165,24 @@
         y
       );
 
-      y += 6;
-
-      font(10, COLORS.text);
-
-      const lines = doc.splitTextToSize(
-        safeText(item.comment),
-        contentWidth - 8
-      );
-
-      const lineHeight = 4.5;
+      y += 5;
 
       for (const line of lines) {
 
         if (
-          y + lineHeight + 3 > bottom
+          y + lineHeight + 2 > bottom
         ) {
+
           newPage();
+
           commentHeader(true);
         }
 
-        // Visual left border for comment text.
+        doc.setDrawColor(
+          COLORS.navy
+        );
 
-        doc.setDrawColor(COLORS.navy);
-        doc.setLineWidth(0.5);
+        doc.setLineWidth(0.45);
 
         doc.line(
           margin,
@@ -1525,67 +2191,78 @@
           y + 1.5
         );
 
-        font(10, COLORS.text);
+        font(
+          CONFIG.bodyFont,
+          COLORS.text
+        );
 
         doc.text(
           line,
-          margin + 4,
+          margin + 3.5,
           y
         );
 
         y += lineHeight;
       }
 
-      y += 4;
+      y += 3;
 
-      ensureSpace(18);
+      const metadataHeight =
+        wasEdited ? 15 : 9;
+
+      if (
+        y + metadataHeight > bottom
+      ) {
+
+        newPage();
+
+        commentHeader(true);
+      }
 
       paragraph(
         "Comment created: " +
         timestampLabel(
           item.comment_created_at
         ),
-        8,
-        COLORS.muted
+
+        9,
+        COLORS.muted,
+        1
       );
 
-      if (
-        item.comment_updated_at &&
-        item.comment_updated_at !==
-          item.comment_created_at
-      ) {
+      if (wasEdited) {
+
         paragraph(
           "Last updated: " +
           timestampLabel(
             item.comment_updated_at
           ),
-          8,
-          COLORS.muted
+
+          9,
+          COLORS.muted,
+          1
         );
       }
 
-      ensureSpace(6);
+      y += 2;
 
-      doc.setDrawColor(COLORS.border);
-      doc.setLineWidth(0.2);
+      if (y + 3 <= bottom) {
+        horizontalRule();
+      }
 
-      doc.line(
-        margin,
-        y,
-        pageWidth - margin,
-        y
-      );
-
-      y += 8;
+      y += 6;
     }
 
     if (review.comments.length > 0) {
+
       smallHeading(
-        "Documented Administrative Actions"
+        "Documented Administrative Actions",
+        45
       );
 
       review.comments.forEach(
         (item, index) => {
+
           renderAdministrativeComment(
             item,
             index
@@ -1594,102 +2271,301 @@
       );
     }
 
-    paragraph(
-      "Administrative comments are reproduced " +
-      "from saved administrator entries. Comments " +
-      "may contain sensitive personnel information " +
-      "and should be reviewed before this report " +
-      "is distributed.",
-      8,
-      COLORS.muted
+    // =================================================
+    // RED ASSESSMENTS WITHOUT COMMENTS
+    // =================================================
+    // A compact two-column follow-up list.
+    // No provider names or original answer values
+    // are included.
+
+    function renderUndocumentedAssessments() {
+
+      const records =
+        review.undocumented;
+
+      if (!records.length) {
+        return;
+      }
+
+      smallHeading(
+        "RED Assessments Awaiting Documentation",
+        28
+      );
+
+      paragraph(
+        "The following RED assessments do not " +
+        "currently have a saved administrative " +
+        "comment. Absence of documentation does " +
+        "not establish that an intervention was " +
+        "not performed.",
+
+        9,
+        COLORS.muted
+      );
+
+      const gap = 5;
+
+      const columnWidth =
+        (contentWidth - gap) / 2;
+
+      const rowHeight = 8;
+
+      function listHeader(
+        continued = false
+      ) {
+
+        ensureSpace(
+          continued ? 19 : 12
+        );
+
+        if (continued) {
+
+          smallHeading(
+            "RED Assessments Awaiting Documentation (continued)",
+            12
+          );
+        }
+
+        doc.setFillColor(
+          COLORS.light
+        );
+
+        doc.rect(
+          margin,
+          y,
+          contentWidth,
+          7,
+          "F"
+        );
+
+        font(
+          8,
+          COLORS.navy,
+          "bold"
+        );
+
+        for (
+          let column = 0;
+          column < 2;
+          column++
+        ) {
+
+          const x =
+            margin +
+            column *
+            (columnWidth + gap);
+
+          doc.text(
+            "Assessment Date / Time",
+            x + 2,
+            y + 4.5
+          );
+
+          doc.text(
+            "Score",
+            x + columnWidth - 2,
+            y + 4.5,
+            {
+              align: "right"
+            }
+          );
+        }
+
+        y += 11;
+      }
+
+      listHeader();
+
+      for (
+        let index = 0;
+        index < records.length;
+        index += 2
+      ) {
+
+        if (
+          y + rowHeight > bottom
+        ) {
+
+          newPage();
+
+          listHeader(true);
+        }
+
+        for (
+          let column = 0;
+          column < 2;
+          column++
+        ) {
+
+          const item =
+            records[index + column];
+
+          if (!item) {
+            continue;
+          }
+
+          const x =
+            margin +
+            column *
+            (columnWidth + gap);
+
+          font(
+            8.5,
+            COLORS.text
+          );
+
+          doc.text(
+            timestampLabel(
+              item.assessment_date
+            ),
+
+            x + 2,
+
+            y
+          );
+
+          font(
+            9,
+            COLORS.red,
+            "bold"
+          );
+
+          doc.text(
+            number(
+              item.total_score
+            ),
+
+            x + columnWidth - 2,
+
+            y,
+
+            {
+              align: "right"
+            }
+          );
+
+          doc.setDrawColor(
+            COLORS.border
+          );
+
+          doc.setLineWidth(0.15);
+
+          doc.line(
+            x,
+            y + 2.5,
+            x + columnWidth,
+            y + 2.5
+          );
+        }
+
+        y += rowHeight;
+      }
+
+      y += 3;
+    }
+
+    renderUndocumentedAssessments();
+
+    note(
+      "Administrative comments are reproduced from " +
+      "saved administrator entries. Review comments " +
+      "for sensitive information before distributing " +
+      "this report."
     );
 
     // =================================================
-    // DATA QUALITY AND REPORT METHODOLOGY
+    // REPORTING METHODOLOGY AND DATA QUALITY
     // =================================================
-
-    newPage();
 
     section(
-      "Reporting Methodology and Data Quality"
+      "Reporting Methodology and Data Quality",
+      25
     );
 
-    tableRow(
-      "Missing or invalid assessment scores",
-      number(
+    const qualityRows = [
+      [
+        "Missing or invalid assessment scores",
         report.summary.missingScoreCount
-      )
-    );
-
-    tableRow(
-      "Missing peer-support responses",
-      number(
+      ],
+      [
+        "Missing peer-support responses",
         report.summary.peerSupportMissing
-      )
-    );
-
-    tableRow(
-      "Missing self-assessment responses",
-      number(
+      ],
+      [
+        "Missing self-assessment responses",
         report.selfAssessment.missingResponses
-      )
-    );
-
-    tableRow(
-      "Assessments with no scoring answers",
-      number(
+      ],
+      [
+        "Assessments with no scoring answers",
         report.factors.missingAnswerAssessments
-      )
-    );
-
-    tableRow(
-      "Invalid scoring records",
-      number(
+      ],
+      [
+        "Invalid scoring records",
         report.factors.invalidScoreAssessments
-      )
-    );
-
-    tableRow(
-      "Unreconciled assessment scores",
-      number(
+      ],
+      [
+        "Unreconciled assessment scores",
         report.factors.discrepantAssessments
-      )
-    );
-
-    tableRow(
-      "Assessments with inferred circadian points",
-      number(
+      ],
+      [
+        "Assessments with inferred circadian points",
         report.factors.inferredCircadianAssessments
-      )
+      ],
+      [
+        "Unknown risk classifications",
+        report.riskDistribution.find(
+          item => item.risk === "UNKNOWN"
+        )?.count || 0
+      ]
+    ];
+
+    for (
+      const [label, value] of qualityRows
+    ) {
+
+      tableRow(
+        label,
+
+        number(value),
+
+        {
+          color:
+            Number(value) > 0 &&
+            !label.includes("inferred circadian")
+
+              ? COLORS.orange
+
+              : COLORS.navy
+        }
+      );
+    }
+
+    note(
+      "Reports count assessment submissions, not " +
+      "unique providers. Assessment counts alone " +
+      "do not establish compliance rates, staffing " +
+      "exposure, or fatigue prevalence among " +
+      "individual employees."
     );
 
-    paragraph(
-      "Reports count assessment submissions, " +
-      "not unique providers. Assessment counts " +
-      "alone do not establish compliance rates, " +
-      "staffing exposure, or fatigue prevalence " +
-      "among individual employees.",
-      8,
-      COLORS.muted
-    );
-
-    paragraph(
+    note(
       "Provider-name response fields are excluded " +
       "from report analytics. Administrative comments " +
       "are included as entered and are not automatically " +
-      "de-identified. Administrators are responsible " +
-      "for reviewing comments for sensitive information " +
-      "before distributing reports.",
-      8,
-      COLORS.muted
+      "de-identified."
     );
 
-    paragraph(
+    note(
       "Administrative comments are retained as " +
       "agency-specific records and are not copied " +
-      "into the global assessment database.",
-      8,
-      COLORS.muted
+      "into the global assessment database."
+    );
+
+    note(
+      "Controlled test assessments, if present in " +
+      "the database, are included in these statistics. " +
+      "Verify the reporting dataset before using this " +
+      "report for formal administrative purposes."
     );
 
     // =================================================
@@ -1704,9 +2580,13 @@
       page <= totalPages;
       page++
     ) {
+
       doc.setPage(page);
 
-      doc.setDrawColor(COLORS.border);
+      doc.setDrawColor(
+        COLORS.border
+      );
+
       doc.setLineWidth(0.2);
 
       doc.line(
@@ -1716,7 +2596,7 @@
         pageHeight - 16
       );
 
-      font(7, COLORS.muted);
+      font(7.5, COLORS.muted);
 
       doc.text(
         "CONFIDENTIAL - ADMINISTRATIVE USE ONLY",
@@ -1726,24 +2606,34 @@
 
       doc.text(
         `Page ${page} of ${totalPages}`,
+
         pageWidth - margin,
+
         pageHeight - 11,
-        { align: "right" }
+
+        {
+          align: "right"
+        }
       );
 
       doc.text(
-        "Atlas Emergency Systems | LCAD",
+        CONFIG.company +
+        " | " +
+        CONFIG.agencyId,
+
         margin,
+
         pageHeight - 7
       );
     }
 
     // =================================================
-    // DOWNLOAD GENERATED REPORT
+    // SAVE PDF
     // =================================================
 
     const filename =
-      "LCAD_Fatigue_Report_" +
+      CONFIG.agencyId +
+      "_Fatigue_Report_" +
       report.range.startDate +
       "_to_" +
       report.range.endDate +
@@ -1755,13 +2645,11 @@
   // ===================================================
   // ADMINISTRATIVE REVIEW PREVIEW
   // ===================================================
-  // Display counts only in the reporting preview.
-  // Actual comment text is available in the
-  // assessment list and generated PDF.
 
   function renderAdministrativeReviewPreview(
     report
   ) {
+
     const status =
       document.getElementById(
         "reportingStatus"
@@ -1783,48 +2671,28 @@
       line-height: 1.7;
     `;
 
-    const heading =
-      document.createElement("h3");
+    function heading(text) {
 
-    heading.textContent =
-      "7. RED Assessment Review and Administrative Comments";
+      const element =
+        document.createElement("h3");
 
-    heading.style.cssText = `
-      color: #173b62;
-      font-size: 16px;
-      margin: 0 0 12px;
-    `;
+      element.textContent = text;
 
-    panel.appendChild(heading);
+      element.style.cssText = `
+        color: #173b62;
+        font-size: 16px;
+        margin: 0 0 12px;
+      `;
 
-    const rows = [
-      [
-        "Total RED Assessments",
-        review.totalRed
-      ],
-      [
-        "With Administrative Comments",
-        review.withComments
-      ],
-      [
-        "Without Administrative Comments",
-        review.withoutComments
-      ],
-      [
-        "Documentation Rate",
-        review.documentationRate === null
-          ? "N/A"
-          : decimal(
-              review.documentationRate
-            ) + "%"
-      ]
-    ];
+      panel.appendChild(element);
+    }
 
-    for (const [label, value] of rows) {
-      const row =
+    function row(label, value) {
+
+      const element =
         document.createElement("div");
 
-      row.style.cssText = `
+      element.style.cssText = `
         display: flex;
         justify-content: space-between;
         gap: 15px;
@@ -1845,18 +2713,56 @@
       amount.textContent =
         String(value);
 
-      row.append(name, amount);
+      element.append(
+        name,
+        amount
+      );
 
-      panel.appendChild(row);
+      panel.appendChild(element);
     }
+
+    heading(
+      "7. RED Assessment Review and Administrative Comments"
+    );
+
+    row(
+      "Total RED Assessments",
+      review.totalRed
+    );
+
+    row(
+      "With Administrative Comments",
+      review.withComments
+    );
+
+    row(
+      "Without Administrative Comments",
+      review.withoutComments
+    );
+
+    row(
+      "Documentation Rate",
+      percent(review.documentationRate)
+    );
+
+    row(
+      "Completed Morning Windows Without Assessments",
+      report.participation.zeroMorningDays
+    );
+
+    row(
+      "Incomplete Morning Windows",
+      report.participation.incompleteMorningDays
+    );
 
     const note =
       document.createElement("p");
 
     note.textContent =
-      "Saved administrative comments are included " +
-      "in the generated PDF. Review the report " +
-      "for sensitive information before distribution.";
+      "Saved comments and the list of RED assessments " +
+      "awaiting documentation are included in the PDF. " +
+      "Review the report for sensitive information " +
+      "before distribution.";
 
     note.style.cssText = `
       font-size: 12px;
@@ -1872,10 +2778,9 @@
   // ===================================================
   // UPDATE REPORTING CONTENTS LIST
   // ===================================================
-  // Add Section 7 automatically.
-  // No admin.html replacement is required.
 
   function updateReportContents() {
+
     const list =
       document.querySelector(
         ".reporting-section-list"
@@ -1885,7 +2790,7 @@
       return;
     }
 
-    const existing =
+    const exists =
       Array.from(list.children).some(
         item =>
           item.textContent
@@ -1895,7 +2800,8 @@
             )
       );
 
-    if (!existing) {
+    if (!exists) {
+
       const item =
         document.createElement("li");
 
@@ -1907,13 +2813,14 @@
   }
 
   // ===================================================
-  // CONNECT PDF MODULE TO REPORTING INTERFACE
+  // CONNECT REPORTING INTERFACE
   // ===================================================
 
   const originalInitialize =
     initializeReporting;
 
   initializeReporting = function () {
+
     originalInitialize();
 
     updateReportContents();
@@ -1924,25 +2831,23 @@
       );
 
     if (!reportingBusy) {
+
       button.textContent =
         "Generate PDF Report";
     }
 
-    const status =
+    if (!latestFatigueReport) {
+
       document.getElementById(
         "reportingStatus"
-      );
-
-    if (!latestFatigueReport) {
-      status.textContent =
+      ).textContent =
         "Select a reporting period to generate " +
-        "your PDF report, including saved " +
-        "administrative comments.";
+        "your Operational Fatigue Risk Report.";
     }
   };
 
   // ===================================================
-  // GENERATE AND DOWNLOAD COMPLETE REPORT
+  // GENERATE COMPLETE REPORT
   // ===================================================
 
   generateFatigueReport =
@@ -1961,6 +2866,7 @@
       }
 
       reportingBusy = true;
+
       latestFatigueReport = null;
 
       const button =
@@ -1979,49 +2885,58 @@
         "Generating PDF...";
 
       status.textContent =
-        "Retrieving assessment data and " +
-        "calculating report statistics...";
+        "Verifying administrator session...";
 
       try {
-        // Generate existing report analytics.
+
+        // Verify authentication even if the
+        // selected period contains no RED records.
+
+        await verifyAdminSession();
+
+        status.textContent =
+          "Retrieving assessment records and " +
+          "calculating report statistics...";
 
         const report =
           await buildFatigueReport();
 
+        // Add morning-window completion analysis
+        // without changing the existing statistics.
+
+        report.participation =
+          enhanceParticipation(report);
+
         status.textContent =
           "Retrieving administrative comments...";
 
-        // Retrieve the latest saved comments.
-
         report.administrativeReview =
-          await buildAdministrativeReview(
-            report
-          );
+          await buildAdministrativeReview(report);
 
         status.textContent =
-          "Formatting PDF report...";
+          "Formatting optimized PDF report...";
 
         await downloadPDF(report);
 
-        // Keep only aggregate review statistics
-        // in the persistent browser report state.
+        // Keep aggregate statistics only.
+        // Do not retain comments or individual
+        // follow-up records in global report state.
 
         latestFatigueReport = {
           ...report,
 
           administrativeReview: {
             ...report.administrativeReview,
-            comments: []
+
+            comments: [],
+
+            undocumented: []
           }
         };
-
-        // Render the existing statistics preview.
 
         renderReportingPreview(
           latestFatigueReport
         );
-
-        // Render Section 7 aggregate statistics.
 
         renderAdministrativeReviewPreview(
           latestFatigueReport
@@ -2042,28 +2957,28 @@
 
         status.prepend(confirmation);
 
-        const paragraphs =
-          status.querySelectorAll("p");
-
         for (
-          const paragraph of paragraphs
+          const paragraph of
+          status.querySelectorAll("p")
         ) {
+
           if (
             paragraph.textContent.includes(
               "PDF generation will be added"
             )
           ) {
+
             paragraph.textContent =
               "These statistics are included in " +
               "the generated PDF report. " +
-              "Provider-name response fields are " +
-              "excluded from report analytics.";
+              "Provider-name response fields " +
+              "are excluded from report analytics.";
           }
         }
 
       } catch (error) {
 
-        // Never log administrative comment text.
+        // Do not log administrative comment text.
 
         console.error(
           "PDF report generation failed."
@@ -2081,6 +2996,7 @@
               "Unable to generate PDF report.";
 
       } finally {
+
         reportingBusy = false;
 
         button.disabled = false;
