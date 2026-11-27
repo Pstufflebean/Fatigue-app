@@ -2,6 +2,7 @@
 // =====================================================
 // ATLAS EMERGENCY SYSTEMS
 // FATIGUE PDF REPORT GENERATOR
+// INCLUDING ADMINISTRATIVE COMMENTS
 // =====================================================
 
 (function () {
@@ -40,9 +41,7 @@
 
   function loadPDFLibrary() {
     if (window.jspdf?.jsPDF) {
-      return Promise.resolve(
-        window.jspdf.jsPDF
-      );
+      return Promise.resolve(window.jspdf.jsPDF);
     }
 
     if (pdfLibraryPromise) {
@@ -63,18 +62,14 @@
             resolve(window.jspdf.jsPDF);
           } else {
             reject(
-              new Error(
-                "PDF library unavailable."
-              )
+              new Error("PDF library unavailable.")
             );
           }
         };
 
         script.onerror = () => {
           reject(
-            new Error(
-              "Unable to load PDF library."
-            )
+            new Error("Unable to load PDF library.")
           );
         };
 
@@ -89,7 +84,7 @@
   }
 
   // ===================================================
-  // FORMAT HELPERS
+  // FORMATTING HELPERS
   // ===================================================
 
   function number(value) {
@@ -99,6 +94,12 @@
 
   function decimal(value) {
     return Number(value || 0).toFixed(1);
+  }
+
+  function percentage(count, total) {
+    return total > 0
+      ? count / total * 100
+      : 0;
   }
 
   function dateLabel(value) {
@@ -132,13 +133,154 @@
     ).format(date);
   }
 
+  function timestampLabel(value) {
+    if (!value) {
+      return "Not recorded";
+    }
+
+    const date = new Date(value);
+
+    if (!Number.isFinite(date.getTime())) {
+      return "Invalid timestamp";
+    }
+
+    return new Intl.DateTimeFormat(
+      "en-US",
+      {
+        timeZone: "America/Chicago",
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23"
+      }
+    ).format(date) + " CT";
+  }
+
   function safeText(value) {
     return String(value ?? "")
       .replace(/[\u2018\u2019]/g, "'")
       .replace(/[\u201c\u201d]/g, '"')
       .replace(/[\u2013\u2014]/g, "-")
       .replace(/\u2265/g, ">=")
-      .replace(/\u2264/g, "<=");
+      .replace(/\u2264/g, "<=")
+      .replace(/\u2022/g, "-")
+      .replace(/\u00a0/g, " ")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n");
+  }
+
+  // ===================================================
+  // RETRIEVE ADMINISTRATIVE COMMENTS
+  // ===================================================
+
+  async function buildAdministrativeReview(report) {
+    if (
+      typeof window.loadAdministrativeReportComments
+        !== "function"
+    ) {
+      throw new Error(
+        "Administrative comments module unavailable."
+      );
+    }
+
+    const records =
+      await loadReportingAssessments(report.range);
+
+    const startTime =
+      new Date(report.range.startUTC).getTime();
+
+    const endTime =
+      new Date(report.range.endUTC).getTime();
+
+    const generatedTime =
+      new Date(report.range.generatedAt).getTime();
+
+    // Use actual calendar completion dates.
+    // Operational-night crossover applies only
+    // to the daily participation chart.
+
+    const redAssessments = records.filter(
+      assessment => {
+        const timestamp =
+          new Date(
+            assessment.created_at
+          ).getTime();
+
+        return (
+          timestamp >= startTime &&
+          timestamp < endTime &&
+          timestamp < generatedTime &&
+          String(
+            assessment.risk_color || ""
+          ).toUpperCase() === "RED"
+        );
+      }
+    );
+
+    const expectedRedCount =
+      report.riskDistribution.find(
+        item => item.risk === "RED"
+      )?.count || 0;
+
+    if (
+      redAssessments.length !== expectedRedCount
+    ) {
+      throw new Error(
+        "Assessment records changed during report " +
+        "generation. Please generate the report again."
+      );
+    }
+
+    // Retrieve protected comments using the
+    // authenticated administrative API.
+
+    const reviews =
+      await window.loadAdministrativeReportComments(
+        redAssessments
+      );
+
+    if (
+      !Array.isArray(reviews) ||
+      reviews.length !== redAssessments.length
+    ) {
+      throw new Error(
+        "Administrative review data incomplete."
+      );
+    }
+
+    const documented = reviews.filter(
+      item =>
+        typeof item.comment === "string" &&
+        item.comment.trim().length > 0
+    );
+
+    documented.sort(
+      (a, b) =>
+        new Date(b.assessment_date).getTime() -
+        new Date(a.assessment_date).getTime()
+    );
+
+    return {
+      totalRed: redAssessments.length,
+
+      withComments: documented.length,
+
+      withoutComments:
+        redAssessments.length -
+        documented.length,
+
+      documentationRate:
+        redAssessments.length > 0
+          ? percentage(
+              documented.length,
+              redAssessments.length
+            )
+          : null,
+
+      comments: documented
+    };
   }
 
   // ===================================================
@@ -149,10 +291,11 @@
     if (
       !report ||
       !report.summary ||
-      !report.range
+      !report.range ||
+      !report.administrativeReview
     ) {
       throw new Error(
-        "Valid report statistics are required."
+        "Complete report statistics are required."
       );
     }
 
@@ -172,8 +315,20 @@
       doc.internal.pageSize.getHeight();
 
     const margin = 16;
-    const contentWidth = pageWidth - margin * 2;
-    const bottom = pageHeight - 21;
+
+    const contentWidth =
+      pageWidth - margin * 2;
+
+    const bottom =
+      pageHeight - 21;
+
+    const cardGap = 4;
+
+    const cardWidth =
+      (contentWidth - cardGap) / 2;
+
+    const rightCard =
+      margin + cardWidth + cardGap;
 
     let y = 18;
 
@@ -255,11 +410,7 @@
 
         font(size, color);
 
-        doc.text(
-          line,
-          margin,
-          y
-        );
+        doc.text(line, margin, y);
 
         y += lineHeight;
       }
@@ -268,56 +419,86 @@
     }
 
     function section(title) {
-      ensureSpace(18);
+      font(13, COLORS.navy, "bold");
+
+      const lines = doc.splitTextToSize(
+        safeText(title),
+        contentWidth
+      );
+
+      ensureSpace(
+        lines.length * 6 + 15
+      );
 
       y += 3;
 
       font(13, COLORS.navy, "bold");
 
-      doc.text(
-        safeText(title),
-        margin,
-        y
-      );
-
-      y += 4;
+      for (const line of lines) {
+        doc.text(line, margin, y);
+        y += 6;
+      }
 
       doc.setDrawColor(COLORS.border);
 
       doc.line(
         margin,
-        y,
+        y - 2,
         pageWidth - margin,
-        y
-      );
-
-      y += 7;
-    }
-
-    function smallHeading(title) {
-      ensureSpace(12);
-
-      font(10, COLORS.navy, "bold");
-
-      doc.text(
-        safeText(title),
-        margin,
-        y
+        y - 2
       );
 
       y += 6;
     }
 
+    function smallHeading(title) {
+      font(10, COLORS.navy, "bold");
+
+      const lines = doc.splitTextToSize(
+        safeText(title),
+        contentWidth
+      );
+
+      ensureSpace(
+        lines.length * 5 + 8
+      );
+
+      font(10, COLORS.navy, "bold");
+
+      for (const line of lines) {
+        doc.text(line, margin, y);
+        y += 5;
+      }
+
+      y += 1;
+    }
+
     function tableRow(label, value) {
-      ensureSpace(9);
+      font(9, COLORS.text);
+
+      const lines = doc.splitTextToSize(
+        safeText(label),
+        contentWidth - 38
+      );
+
+      const height =
+        Math.max(9, lines.length * 4 + 5);
+
+      ensureSpace(height);
 
       font(9, COLORS.text);
 
-      doc.text(
-        safeText(label),
-        margin,
-        y
-      );
+      for (
+        let index = 0;
+        index < lines.length;
+        index++
+      ) {
+        doc.text(
+          lines[index],
+          margin,
+          y + index * 4
+        );
+      }
 
       font(9, COLORS.navy, "bold");
 
@@ -328,7 +509,7 @@
         { align: "right" }
       );
 
-      y += 3;
+      y += height - 5;
 
       doc.setDrawColor(COLORS.border);
 
@@ -343,7 +524,7 @@
     }
 
     // =================================================
-    // KPI CARD
+    // KPI CARDS
     // =================================================
 
     function metricCard(
@@ -405,7 +586,7 @@
     function horizontalBar(
       label,
       value,
-      percentage,
+      percent,
       color
     ) {
       ensureSpace(16);
@@ -445,7 +626,7 @@
         contentWidth *
         Math.min(
           100,
-          Math.max(0, percentage)
+          Math.max(0, percent)
         ) / 100;
 
       if (width > 0) {
@@ -520,17 +701,9 @@
 
     paragraph(
       "Generated: " +
-      new Intl.DateTimeFormat(
-        "en-US",
-        {
-          timeZone: "America/Chicago",
-          dateStyle: "medium",
-          timeStyle: "short"
-        }
-      ).format(
-        new Date(report.range.generatedAt)
-      ) +
-      " Central Time",
+      timestampLabel(
+        report.range.generatedAt
+      ),
       8,
       COLORS.muted
     );
@@ -544,15 +717,7 @@
       "01 - Executive Summary and Key Metrics"
     );
 
-    ensureSpace(60);
-
-    const cardGap = 4;
-
-    const cardWidth =
-      (contentWidth - cardGap) / 2;
-
-    const rightCard =
-      margin + cardWidth + cardGap;
+    ensureSpace(64);
 
     metricCard(
       margin,
@@ -595,9 +760,7 @@
     y += 34;
 
     const redCount =
-      report.riskDistribution.find(
-        item => item.risk === "RED"
-      )?.count || 0;
+      report.administrativeReview.totalRed;
 
     if (report.summary.totalAssessments > 0) {
       paragraph(
@@ -625,7 +788,9 @@
       "02 - Fatigue Risk Distribution"
     );
 
-    for (const risk of report.riskDistribution) {
+    for (
+      const risk of report.riskDistribution
+    ) {
       if (
         risk.risk === "UNKNOWN" &&
         risk.count === 0
@@ -635,11 +800,14 @@
 
       horizontalBar(
         risk.risk,
+
         number(risk.count) +
           " (" +
           decimal(risk.percentage) +
           "%)",
+
         risk.percentage,
+
         RISK_COLORS[risk.risk] ||
           COLORS.unknown
       );
@@ -657,7 +825,7 @@
 
     // =================================================
     // SECTION 3
-    // DAILY PARTICIPATION
+    // DAILY ASSESSMENT PARTICIPATION
     // =================================================
 
     newPage();
@@ -666,14 +834,16 @@
       "03 - Daily Assessment Participation"
     );
 
-    ensureSpace(32);
+    ensureSpace(34);
 
     metricCard(
       margin,
       y,
       cardWidth,
       "Morning Assessments",
-      number(report.participation.totalMorning),
+      number(
+        report.participation.totalMorning
+      ),
       "0700-0959",
       COLORS.morning
     );
@@ -683,7 +853,9 @@
       y,
       cardWidth,
       "Overnight Assessments",
-      number(report.participation.totalOvernight),
+      number(
+        report.participation.totalOvernight
+      ),
       "2200-0559",
       COLORS.overnight
     );
@@ -693,16 +865,16 @@
     paragraph(
       "Morning assessments are assigned to their " +
       "calendar date. Overnight assessments " +
-      "completed after midnight are assigned " +
-      "to the preceding operational night. " +
+      "completed after midnight are assigned to " +
+      "the preceding operational night. " +
       "All times use Central Time."
     );
 
-    // Group participation data by calendar month.
-
     const months = new Map();
 
-    for (const day of report.participation.daily) {
+    for (
+      const day of report.participation.daily
+    ) {
       const key = day.date.slice(0, 7);
 
       if (!months.has(key)) {
@@ -717,7 +889,7 @@
     // =================================================
 
     function dailyChart(month, days) {
-      ensureSpace(90);
+      ensureSpace(102);
 
       smallHeading(monthLabel(month));
 
@@ -725,7 +897,9 @@
       const chartY = y + 10;
       const chartW = contentWidth - 13;
       const chartH = 45;
-      const chartBottom = chartY + chartH;
+
+      const chartBottom =
+        chartY + chartH;
 
       const maximum = Math.max(
         1,
@@ -749,21 +923,14 @@
         chartW / days.length;
 
       const barWidth =
-        Math.min(
-          groupWidth * 0.34,
-          5
-        );
+        Math.min(groupWidth * 0.34, 5);
 
-      // Legend.
+      // Chart legend.
 
       doc.setFillColor(COLORS.morning);
 
       doc.rect(
-        margin,
-        y,
-        3,
-        3,
-        "F"
+        margin, y, 3, 3, "F"
       );
 
       font(8, COLORS.text);
@@ -777,11 +944,7 @@
       doc.setFillColor(COLORS.overnight);
 
       doc.rect(
-        margin + 34,
-        y,
-        3,
-        3,
-        "F"
+        margin + 34, y, 3, 3, "F"
       );
 
       doc.text(
@@ -799,8 +962,7 @@
       ) {
         const tickY =
           chartBottom -
-          (tick / axisMaximum) *
-          chartH;
+          tick / axisMaximum * chartH;
 
         doc.setDrawColor(COLORS.border);
         doc.setLineWidth(0.15);
@@ -822,7 +984,7 @@
         );
       }
 
-      // Daily columns.
+      // Daily assessment columns.
 
       days.forEach((day, index) => {
         const center =
@@ -840,7 +1002,9 @@
           chartH;
 
         if (morningHeight > 0) {
-          doc.setFillColor(COLORS.morning);
+          doc.setFillColor(
+            COLORS.morning
+          );
 
           doc.rect(
             center - barWidth - 0.2,
@@ -852,7 +1016,9 @@
         }
 
         if (overnightHeight > 0) {
-          doc.setFillColor(COLORS.overnight);
+          doc.setFillColor(
+            COLORS.overnight
+          );
 
           doc.rect(
             center + 0.2,
@@ -891,23 +1057,26 @@
 
       y = chartBottom + 16;
 
-      const morningTotal = days.reduce(
-        (sum, day) => sum + day.morning,
-        0
-      );
+      const morningTotal =
+        days.reduce(
+          (sum, day) =>
+            sum + day.morning,
+          0
+        );
 
-      const overnightTotal = days.reduce(
-        (sum, day) => sum + day.overnight,
-        0
-      );
+      const overnightTotal =
+        days.reduce(
+          (sum, day) =>
+            sum + day.overnight,
+          0
+        );
 
       paragraph(
         "Morning: " +
         number(morningTotal) +
         " | Operational night: " +
         number(overnightTotal),
-        9,
-        COLORS.text
+        9
       );
 
       if (
@@ -947,9 +1116,9 @@
       "The participation chart includes " +
       "next-day assessments belonging to the " +
       "final operational night. Other report " +
-      "statistics use actual calendar " +
-      "completion dates. Consequently, these " +
-      "sections may use different record sets.",
+      "statistics use actual calendar completion " +
+      "dates. Consequently, these sections may " +
+      "use different record sets.",
       8,
       COLORS.muted
     );
@@ -971,14 +1140,19 @@
       "assessment categories."
     );
 
-    for (const factor of report.factors.categories) {
+    for (
+      const factor of report.factors.categories
+    ) {
       horizontalBar(
         factor.title,
+
         number(factor.points) +
           " pts (" +
           decimal(factor.percentage) +
           "%)",
+
         factor.percentage,
+
         "#345b80"
       );
     }
@@ -992,12 +1166,11 @@
 
     paragraph(
       "Historical weighted scores are preserved. " +
-      "Circadian contributions are inferred " +
-      "from historical score differences " +
-      "when consistent with established " +
-      "scoring rules. These percentages describe " +
-      "scoring contributions, not proven causes " +
-      "of fatigue.",
+      "Circadian contributions are inferred from " +
+      "historical score differences when consistent " +
+      "with established scoring rules. These " +
+      "percentages describe scoring contributions, " +
+      "not proven causes of fatigue.",
       8,
       COLORS.muted
     );
@@ -1024,11 +1197,14 @@
     ) {
       horizontalBar(
         item.label,
+
         number(item.count) +
           " (" +
           decimal(item.percentage) +
           "%)",
+
         item.percentage,
+
         selfColors[item.value] ||
           COLORS.unknown
       );
@@ -1056,11 +1232,11 @@
     );
 
     paragraph(
-      "Response percentages are calculated " +
-      "using valid self-assessment responses. " +
-      "Differences between perceived readiness " +
-      "and calculated fatigue risk may identify " +
-      "opportunities for education and review.",
+      "Response percentages are calculated using " +
+      "valid self-assessment responses. Differences " +
+      "between perceived readiness and calculated " +
+      "fatigue risk may identify opportunities " +
+      "for education and review.",
       8,
       COLORS.muted
     );
@@ -1093,19 +1269,346 @@
       y += 3;
     }
 
+    // Add administrative documentation guidance.
+
+    const review =
+      report.administrativeReview;
+
+    if (review.withoutComments > 0) {
+      smallHeading(
+        "RED assessment documentation"
+      );
+
+      paragraph(
+        `${number(review.withoutComments)} RED ` +
+        "assessments do not currently contain an " +
+        "administrative comment. Consider reviewing " +
+        "these records and documenting applicable " +
+        "supervisory actions or fatigue mitigation " +
+        "measures."
+      );
+    }
+
     paragraph(
-      "These recommendations are generated " +
-      "using predefined analytical rules. " +
-      "They support administrative review " +
-      "and do not independently determine " +
-      "provider fitness for duty.",
+      "These recommendations are generated using " +
+      "predefined analytical rules. They support " +
+      "administrative review and do not independently " +
+      "determine provider fitness for duty.",
       8,
       COLORS.muted
     );
 
     // =================================================
-    // DATA QUALITY AND METHODOLOGY
+    // SECTION 7
+    // RED ASSESSMENT REVIEW
+    // ADMINISTRATIVE COMMENTS
     // =================================================
+
+    newPage();
+
+    section(
+      "07 - RED Assessment Review and Administrative Comments"
+    );
+
+    ensureSpace(64);
+
+    metricCard(
+      margin,
+      y,
+      cardWidth,
+      "Total RED Assessments",
+      number(review.totalRed),
+      null,
+      COLORS.red
+    );
+
+    metricCard(
+      rightCard,
+      y,
+      cardWidth,
+      "With Administrative Comments",
+      number(review.withComments),
+      null,
+      COLORS.green
+    );
+
+    y += 30;
+
+    metricCard(
+      margin,
+      y,
+      cardWidth,
+      "Without Administrative Comments",
+      number(review.withoutComments)
+    );
+
+    metricCard(
+      rightCard,
+      y,
+      cardWidth,
+      "Documentation Rate",
+      review.documentationRate === null
+        ? "N/A"
+        : decimal(
+            review.documentationRate
+          ) + "%"
+    );
+
+    y += 34;
+
+    if (
+      review.documentationRate !== null
+    ) {
+      horizontalBar(
+        "Administrative documentation rate",
+
+        decimal(
+          review.documentationRate
+        ) + "%",
+
+        review.documentationRate,
+
+        "#345b80"
+      );
+    }
+
+    paragraph(
+      "Administrative documentation rates reflect " +
+      "the presence of saved comments. They do not " +
+      "independently establish whether all required " +
+      "fatigue mitigation measures were completed.",
+      8,
+      COLORS.muted
+    );
+
+    paragraph(
+      "Comments are associated with the original " +
+      "assessment completion date. The report " +
+      "includes the latest saved version available " +
+      "when administrative comments are retrieved.",
+      8,
+      COLORS.muted
+    );
+
+    if (review.totalRed === 0) {
+      paragraph(
+        "No RED assessments were recorded " +
+        "during the selected reporting period."
+      );
+    }
+
+    if (
+      review.totalRed > 0 &&
+      review.withComments === 0
+    ) {
+      paragraph(
+        "No administrative comments are currently " +
+        "recorded for the RED assessments within " +
+        "this reporting period."
+      );
+    }
+
+    // =================================================
+    // ADMINISTRATIVE COMMENT RENDERING
+    // =================================================
+    // Long comments may continue across pages.
+    // Comments are rendered as plain text.
+
+    function renderAdministrativeComment(
+      item,
+      index
+    ) {
+      const label =
+        "RED Assessment " +
+        String(index + 1);
+
+      const score =
+        item.total_score === null ||
+        !Number.isFinite(
+          Number(item.total_score)
+        )
+          ? "N/A"
+          : number(item.total_score);
+
+      function commentHeader(
+        continued = false
+      ) {
+        ensureSpace(36);
+
+        doc.setFillColor(COLORS.light);
+
+        doc.roundedRect(
+          margin,
+          y,
+          contentWidth,
+          16,
+          1.5,
+          1.5,
+          "F"
+        );
+
+        font(10, COLORS.navy, "bold");
+
+        doc.text(
+          label +
+            (continued
+              ? " (continued)"
+              : ""),
+          margin + 4,
+          y + 5
+        );
+
+        font(10, COLORS.red, "bold");
+
+        doc.text(
+          "RED | Score: " + score,
+          pageWidth - margin - 4,
+          y + 5,
+          { align: "right" }
+        );
+
+        font(8, COLORS.muted);
+
+        doc.text(
+          "Assessment: " +
+          timestampLabel(
+            item.assessment_date
+          ),
+          margin + 4,
+          y + 11
+        );
+
+        y += 22;
+      }
+
+      ensureSpace(52);
+
+      commentHeader();
+
+      font(9, COLORS.navy, "bold");
+
+      doc.text(
+        "Administrative Comment",
+        margin + 3,
+        y
+      );
+
+      y += 6;
+
+      font(10, COLORS.text);
+
+      const lines = doc.splitTextToSize(
+        safeText(item.comment),
+        contentWidth - 8
+      );
+
+      const lineHeight = 4.5;
+
+      for (const line of lines) {
+
+        if (
+          y + lineHeight + 3 > bottom
+        ) {
+          newPage();
+          commentHeader(true);
+        }
+
+        // Visual left border for comment text.
+
+        doc.setDrawColor(COLORS.navy);
+        doc.setLineWidth(0.5);
+
+        doc.line(
+          margin,
+          y - 3,
+          margin,
+          y + 1.5
+        );
+
+        font(10, COLORS.text);
+
+        doc.text(
+          line,
+          margin + 4,
+          y
+        );
+
+        y += lineHeight;
+      }
+
+      y += 4;
+
+      ensureSpace(18);
+
+      paragraph(
+        "Comment created: " +
+        timestampLabel(
+          item.comment_created_at
+        ),
+        8,
+        COLORS.muted
+      );
+
+      if (
+        item.comment_updated_at &&
+        item.comment_updated_at !==
+          item.comment_created_at
+      ) {
+        paragraph(
+          "Last updated: " +
+          timestampLabel(
+            item.comment_updated_at
+          ),
+          8,
+          COLORS.muted
+        );
+      }
+
+      ensureSpace(6);
+
+      doc.setDrawColor(COLORS.border);
+      doc.setLineWidth(0.2);
+
+      doc.line(
+        margin,
+        y,
+        pageWidth - margin,
+        y
+      );
+
+      y += 8;
+    }
+
+    if (review.comments.length > 0) {
+      smallHeading(
+        "Documented Administrative Actions"
+      );
+
+      review.comments.forEach(
+        (item, index) => {
+          renderAdministrativeComment(
+            item,
+            index
+          );
+        }
+      );
+    }
+
+    paragraph(
+      "Administrative comments are reproduced " +
+      "from saved administrator entries. Comments " +
+      "may contain sensitive personnel information " +
+      "and should be reviewed before this report " +
+      "is distributed.",
+      8,
+      COLORS.muted
+    );
+
+    // =================================================
+    // DATA QUALITY AND REPORT METHODOLOGY
+    // =================================================
+
+    newPage();
 
     section(
       "Reporting Methodology and Data Quality"
@@ -1113,12 +1616,16 @@
 
     tableRow(
       "Missing or invalid assessment scores",
-      number(report.summary.missingScoreCount)
+      number(
+        report.summary.missingScoreCount
+      )
     );
 
     tableRow(
       "Missing peer-support responses",
-      number(report.summary.peerSupportMissing)
+      number(
+        report.summary.peerSupportMissing
+      )
     );
 
     tableRow(
@@ -1167,10 +1674,20 @@
     );
 
     paragraph(
-      "Provider names are excluded from this " +
-      "report. Aggregate peer-support statistics " +
-      "are intended for confidential " +
-      "administrative use.",
+      "Provider-name response fields are excluded " +
+      "from report analytics. Administrative comments " +
+      "are included as entered and are not automatically " +
+      "de-identified. Administrators are responsible " +
+      "for reviewing comments for sensitive information " +
+      "before distributing reports.",
+      8,
+      COLORS.muted
+    );
+
+    paragraph(
+      "Administrative comments are retained as " +
+      "agency-specific records and are not copied " +
+      "into the global assessment database.",
       8,
       COLORS.muted
     );
@@ -1190,6 +1707,7 @@
       doc.setPage(page);
 
       doc.setDrawColor(COLORS.border);
+      doc.setLineWidth(0.2);
 
       doc.line(
         margin,
@@ -1221,7 +1739,7 @@
     }
 
     // =================================================
-    // DOWNLOAD
+    // DOWNLOAD GENERATED REPORT
     // =================================================
 
     const filename =
@@ -1235,6 +1753,160 @@
   }
 
   // ===================================================
+  // ADMINISTRATIVE REVIEW PREVIEW
+  // ===================================================
+  // Display counts only in the reporting preview.
+  // Actual comment text is available in the
+  // assessment list and generated PDF.
+
+  function renderAdministrativeReviewPreview(
+    report
+  ) {
+    const status =
+      document.getElementById(
+        "reportingStatus"
+      );
+
+    const review =
+      report.administrativeReview;
+
+    const panel =
+      document.createElement("div");
+
+    panel.style.cssText = `
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 18px;
+      margin-top: 15px;
+      color: #173b62;
+      line-height: 1.7;
+    `;
+
+    const heading =
+      document.createElement("h3");
+
+    heading.textContent =
+      "7. RED Assessment Review and Administrative Comments";
+
+    heading.style.cssText = `
+      color: #173b62;
+      font-size: 16px;
+      margin: 0 0 12px;
+    `;
+
+    panel.appendChild(heading);
+
+    const rows = [
+      [
+        "Total RED Assessments",
+        review.totalRed
+      ],
+      [
+        "With Administrative Comments",
+        review.withComments
+      ],
+      [
+        "Without Administrative Comments",
+        review.withoutComments
+      ],
+      [
+        "Documentation Rate",
+        review.documentationRate === null
+          ? "N/A"
+          : decimal(
+              review.documentationRate
+            ) + "%"
+      ]
+    ];
+
+    for (const [label, value] of rows) {
+      const row =
+        document.createElement("div");
+
+      row.style.cssText = `
+        display: flex;
+        justify-content: space-between;
+        gap: 15px;
+        padding: 7px 0;
+        border-bottom: 1px solid #e2e8f0;
+        font-size: 14px;
+        color: #334155;
+      `;
+
+      const name =
+        document.createElement("span");
+
+      name.textContent = label;
+
+      const amount =
+        document.createElement("strong");
+
+      amount.textContent =
+        String(value);
+
+      row.append(name, amount);
+
+      panel.appendChild(row);
+    }
+
+    const note =
+      document.createElement("p");
+
+    note.textContent =
+      "Saved administrative comments are included " +
+      "in the generated PDF. Review the report " +
+      "for sensitive information before distribution.";
+
+    note.style.cssText = `
+      font-size: 12px;
+      color: #64748b;
+      margin: 12px 0 0;
+    `;
+
+    panel.appendChild(note);
+
+    status.appendChild(panel);
+  }
+
+  // ===================================================
+  // UPDATE REPORTING CONTENTS LIST
+  // ===================================================
+  // Add Section 7 automatically.
+  // No admin.html replacement is required.
+
+  function updateReportContents() {
+    const list =
+      document.querySelector(
+        ".reporting-section-list"
+      );
+
+    if (!list) {
+      return;
+    }
+
+    const existing =
+      Array.from(list.children).some(
+        item =>
+          item.textContent
+            .toLowerCase()
+            .includes(
+              "red assessment review"
+            )
+      );
+
+    if (!existing) {
+      const item =
+        document.createElement("li");
+
+      item.textContent =
+        "RED Assessment Review and Administrative Comments";
+
+      list.appendChild(item);
+    }
+  }
+
+  // ===================================================
   // CONNECT PDF MODULE TO REPORTING INTERFACE
   // ===================================================
 
@@ -1243,6 +1915,8 @@
 
   initializeReporting = function () {
     originalInitialize();
+
+    updateReportContents();
 
     const button =
       document.getElementById(
@@ -1261,113 +1935,159 @@
 
     if (!latestFatigueReport) {
       status.textContent =
-        "Select a reporting period to " +
-        "generate your PDF report.";
+        "Select a reporting period to generate " +
+        "your PDF report, including saved " +
+        "administrative comments.";
     }
   };
 
   // ===================================================
-  // GENERATE AND DOWNLOAD REPORT
+  // GENERATE AND DOWNLOAD COMPLETE REPORT
   // ===================================================
 
-  generateFatigueReport = async function () {
-    if (
-      reportingBusy ||
-      !reportingAdminVisible() ||
-      getComputedStyle(
-        document.getElementById(
-          "reportingView"
-        )
-      ).display === "none"
-    ) {
-      return;
-    }
+  generateFatigueReport =
+    async function () {
 
-    reportingBusy = true;
-    latestFatigueReport = null;
-
-    const button =
-      document.getElementById(
-        "generateReportButton"
-      );
-
-    const status =
-      document.getElementById(
-        "reportingStatus"
-      );
-
-    button.disabled = true;
-
-    button.textContent =
-      "Generating PDF...";
-
-    status.textContent =
-      "Retrieving assessment data and " +
-      "generating your PDF report...";
-
-    try {
-      latestFatigueReport =
-        await buildFatigueReport();
-
-      await downloadPDF(
-        latestFatigueReport
-      );
-
-      renderReportingPreview(
-        latestFatigueReport
-      );
-
-      const confirmation =
-        document.createElement("p");
-
-      confirmation.textContent =
-        "PDF report generated. " +
-        "Check your browser downloads.";
-
-      confirmation.style.cssText = `
-        color: #15803d;
-        font-weight: 700;
-        margin: 12px 0;
-      `;
-
-      status.prepend(confirmation);
-
-      // Update outdated development-stage text.
-
-      const paragraphs =
-        status.querySelectorAll("p");
-
-      for (const paragraph of paragraphs) {
-        if (
-          paragraph.textContent.includes(
-            "PDF generation will be added"
+      if (
+        reportingBusy ||
+        !reportingAdminVisible() ||
+        getComputedStyle(
+          document.getElementById(
+            "reportingView"
           )
-        ) {
-          paragraph.textContent =
-            "These statistics are included in " +
-            "the generated PDF report. " +
-            "Provider names are excluded.";
-        }
+        ).display === "none"
+      ) {
+        return;
       }
 
-    } catch (error) {
-      console.error(
-        "PDF report generation failed:",
-        error?.message || "Unknown error"
-      );
+      reportingBusy = true;
+      latestFatigueReport = null;
 
-      status.textContent =
-        error?.message ||
-        "Unable to generate PDF report.";
+      const button =
+        document.getElementById(
+          "generateReportButton"
+        );
 
-    } finally {
-      reportingBusy = false;
+      const status =
+        document.getElementById(
+          "reportingStatus"
+        );
 
-      button.disabled = false;
+      button.disabled = true;
 
       button.textContent =
-        "Generate PDF Report";
-    }
-  };
+        "Generating PDF...";
+
+      status.textContent =
+        "Retrieving assessment data and " +
+        "calculating report statistics...";
+
+      try {
+        // Generate existing report analytics.
+
+        const report =
+          await buildFatigueReport();
+
+        status.textContent =
+          "Retrieving administrative comments...";
+
+        // Retrieve the latest saved comments.
+
+        report.administrativeReview =
+          await buildAdministrativeReview(
+            report
+          );
+
+        status.textContent =
+          "Formatting PDF report...";
+
+        await downloadPDF(report);
+
+        // Keep only aggregate review statistics
+        // in the persistent browser report state.
+
+        latestFatigueReport = {
+          ...report,
+
+          administrativeReview: {
+            ...report.administrativeReview,
+            comments: []
+          }
+        };
+
+        // Render the existing statistics preview.
+
+        renderReportingPreview(
+          latestFatigueReport
+        );
+
+        // Render Section 7 aggregate statistics.
+
+        renderAdministrativeReviewPreview(
+          latestFatigueReport
+        );
+
+        const confirmation =
+          document.createElement("p");
+
+        confirmation.textContent =
+          "PDF report generated successfully. " +
+          "Check your browser downloads.";
+
+        confirmation.style.cssText = `
+          color: #15803d;
+          font-weight: 700;
+          margin: 12px 0;
+        `;
+
+        status.prepend(confirmation);
+
+        const paragraphs =
+          status.querySelectorAll("p");
+
+        for (
+          const paragraph of paragraphs
+        ) {
+          if (
+            paragraph.textContent.includes(
+              "PDF generation will be added"
+            )
+          ) {
+            paragraph.textContent =
+              "These statistics are included in " +
+              "the generated PDF report. " +
+              "Provider-name response fields are " +
+              "excluded from report analytics.";
+          }
+        }
+
+      } catch (error) {
+
+        // Never log administrative comment text.
+
+        console.error(
+          "PDF report generation failed."
+        );
+
+        latestFatigueReport = null;
+
+        status.textContent =
+          error?.status === 401
+
+            ? "Your administrator session has expired. " +
+              "Refresh the page and sign in again."
+
+            : error?.message ||
+              "Unable to generate PDF report.";
+
+      } finally {
+        reportingBusy = false;
+
+        button.disabled = false;
+
+        button.textContent =
+          "Generate PDF Report";
+      }
+    };
 
 })();
